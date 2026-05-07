@@ -1,26 +1,119 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-surface: var(--surface);
+  --color-dream: var(--dream);
+  --color-success: var(--success);
+  --color-warn: var(--warn);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Paleta TI — azul nocturno, dourado quente, creme */
+:root {
+  --background: oklch(0.982 0.008 85);       /* #FAF7F2 creme */
+  --foreground: oklch(0.218 0.014 249);       /* #1A202C ink */
+  --card: oklch(1 0 0);                       /* #FFFFFF surface */
+  --card-foreground: oklch(0.218 0.014 249);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.218 0.014 249);
+  --primary: oklch(0.272 0.082 252);          /* #1A365D azul nocturno */
+  --primary-foreground: oklch(0.982 0.008 85);
+  --secondary: oklch(0.91 0.010 249);         /* #E2E8F0 border suave */
+  --secondary-foreground: oklch(0.272 0.082 252);
+  --muted: oklch(0.91 0.010 249);
+  --muted-foreground: oklch(0.430 0.025 249); /* #4A5568 cinza profundo */
+  --accent: oklch(0.631 0.118 65);            /* #B7791F dourado quente */
+  --accent-foreground: oklch(1 0 0);
+  --destructive: oklch(0.550 0.140 42);       /* #C05621 warn */
+  --border: oklch(0.91 0.010 249);            /* #E2E8F0 */
+  --input: oklch(0.91 0.010 249);
+  --ring: oklch(0.272 0.082 252);
+  --radius: 0.5rem;
+  --surface: oklch(1 0 0);
+  --dream: oklch(0.375 0.132 288);            /* #553C9A violeta nocturno */
+  --success: oklch(0.520 0.110 151);          /* #2F855A */
+  --warn: oklch(0.550 0.140 42);              /* #C05621 */
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-inter), system-ui, sans-serif;
+    line-height: 1.7;
+    font-size: 16px;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-lora), Georgia, serif;
+    line-height: 1.25;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  code, pre, .font-mono {
+    font-family: var(--font-jetbrains), 'Courier New', monospace;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Animações subtis conforme especificação */
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 200ms ease-out;
+  }
+  .animate-slide-up {
+    animation: slideUp 250ms ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+/* Tipografia de sonhos — fundo ligeiramente diferenciado */
+.sonho-texto {
+  font-family: var(--font-jetbrains), monospace;
+  background: oklch(0.975 0.010 85);
+  border-left: 3px solid oklch(0.375 0.132 288);
+  padding: 1rem 1.25rem;
+  border-radius: 0.25rem;
+  line-height: 1.8;
+}
+
+/* Citações do dashboard */
+.citacao-bloco {
+  border-left: 3px solid oklch(0.631 0.118 65);
+  background: oklch(0.982 0.008 85);
+  padding: 0.75rem 1.25rem;
 }
