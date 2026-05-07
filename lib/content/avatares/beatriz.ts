@@ -16,7 +16,7 @@ export const beatriz: Avatar = {
     historiaReal: 'Casada 43 anos. Perdeu o Joaquim de forma súbita — enfarte durante uma caminhada. Não se despediram. As plantas dele (uma colecção de suculentas no terraço) tornaram-se um ritual de luto diário que ela própria reconhece como excesso.',
     feridaCentral: 'Não a morte em si, mas a ausência de despedida. O sonho de visita está a fazer um trabalho terapêutico que ela não conseguiu fazer acordada.',
     motivoVerdadeiroDaTerapia: 'A filha disse-lhe que precisa de "seguir em frente" e marcou a consulta. A Beatriz veio para provar que está bem, não para pedir ajuda.',
-    chaveTerapeutica: 'O sonho não é luto não resolvido — é resolução em curso. O Joaquim a dizer que ela não precisa de regar as plantas é uma mensagem interna de permissão. O terapeuta não deve analisar, deve testemunhar. O erro clássico aqui é tratar o sonho de visita como sintoma.',
+    chaveTerapeutica: 'O sonho não é luto não resolvido — é resolução em curso. O Joaquim a dizer que ela não precisa de regar as plantas é uma mensagem interna de permissão. O terapeuta não deve analisar, deve testemunhar. O erro clássico aqui é tratar o sonho de visita como sinal de perturbação.',
     indicadoresProgresso: [
       'Não tratou o sonho como problema a resolver.',
       'Criou espaço para a experiência subjectiva da Beatriz sem a redirigir.',

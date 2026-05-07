@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useSonhos } from '@/lib/hooks/useSonhos'
 import { SonhoCard } from '@/components/diario/SonhoCard'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+
+const WELCOME_KEY = 'diario_welcome_shown'
 
 function DiarioSkeleton() {
   return (
@@ -25,6 +27,18 @@ export default function DiarioPage() {
   const { data: sonhos, isLoading } = useSonhos()
   const [query, setQuery] = useState('')
   const [activeTag, setActiveTag] = useState<string | null>(null)
+  const [showWelcome, setShowWelcome] = useState(false)
+
+  useEffect(() => {
+    if (!isLoading && sonhos?.length === 0 && !localStorage.getItem(WELCOME_KEY)) {
+      setShowWelcome(true)
+    }
+  }, [isLoading, sonhos])
+
+  function dismissWelcome() {
+    localStorage.setItem(WELCOME_KEY, '1')
+    setShowWelcome(false)
+  }
 
   const filtered = useMemo(() => {
     if (!sonhos) return []
@@ -161,6 +175,50 @@ export default function DiarioPage() {
               onTagClick={toggleTag}
             />
           ))}
+        </div>
+      )}
+
+      {/* Modal de boas-vindas — primeira visita com diário vazio */}
+      {showWelcome && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'oklch(0 0 0 / 0.45)' }}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border p-7 space-y-5"
+            style={{ background: 'var(--card)', borderColor: 'var(--border)' }}
+          >
+            <div className="space-y-1">
+              <h2
+                className="text-xl font-medium"
+                style={{ fontFamily: 'var(--font-lora)', color: 'var(--primary)' }}
+              >
+                O teu espaço privado
+              </h2>
+            </div>
+            <div className="space-y-3 text-sm" style={{ color: 'var(--muted-foreground)' }}>
+              <p>
+                O teu diário pertence-te. Os sonhos que aqui registares são privados e
+                não são partilhados com mais ninguém.
+              </p>
+              <p>
+                Não há interpretações certas nem erradas. Escreve com a mesma liberdade
+                com que sonhas.
+              </p>
+              <p>
+                Podes ligar qualquer registo a uma sessão de supervisão sempre que quiseres
+                aprofundar.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissWelcome}
+              className="w-full inline-flex items-center justify-center rounded-md h-10 text-sm font-medium"
+              style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+            >
+              Percebido, começar
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -111,13 +111,6 @@ export function Header({ profile }: HeaderProps) {
             )}
           </div>
 
-          {/* Menu mobile */}
-          <button
-            className="md:hidden p-1.5 rounded-md"
-            onClick={() => setMenuAberto(v => !v)}
-            style={{ color: 'var(--muted-foreground)' }}
-            aria-label="Menu">
-          </button>
         </div>
       </div>
 
