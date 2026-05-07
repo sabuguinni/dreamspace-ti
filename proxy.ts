@@ -4,6 +4,9 @@ import { createServerClient } from '@supabase/ssr'
 export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // API routes handle their own auth — proxy never intercepts them
+  if (pathname.startsWith('/api/')) return NextResponse.next()
+
   const publicPaths = ['/login', '/auth']
   const isPublic = publicPaths.some(p => pathname.startsWith(p))
 
