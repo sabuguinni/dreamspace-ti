@@ -1,10 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
-export default async function proxy(request: NextRequest) {
+export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // API routes handle their own auth — proxy never intercepts them
+  // API routes handle their own auth — middleware never intercepts them
   if (pathname.startsWith('/api/')) return NextResponse.next()
 
   const publicPaths = ['/login', '/auth']
