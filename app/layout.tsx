@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Lora, JetBrains_Mono } from "next/font/google";
+import { Toaster } from "@/components/ui/sonner";
+import { QueryProvider } from "@/components/shared/QueryProvider";
 import "./globals.css";
 
 const inter = Inter({
@@ -36,7 +38,12 @@ export default function RootLayout({
       lang="pt"
       className={`${inter.variable} ${lora.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <QueryProvider>
+          {children}
+        </QueryProvider>
+        <Toaster richColors position="top-right" />
+      </body>
     </html>
   );
 }
