@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { SUPERVISOR_SYSTEM_PROMPT } from '@/lib/anthropic/supervisor-prompt'
+import { enforceVocabulary } from '@/lib/anthropic/vocabulary-filter'
 import { z } from 'zod'
 
 const StreamSchema = z.object({
@@ -118,12 +119,13 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
 
-        // Persist assistant message
-        const flags = detectFlags(fullText)
+        // Persist assistant message with vocabulary enforcement
+        const cleanText = enforceVocabulary(fullText)
+        const flags = detectFlags(cleanText)
         await supabase.from('mensagens').insert({
           sessao_supervisor_id: sessao_id,
           papel: 'assistant',
-          conteudo: fullText,
+          conteudo: cleanText,
           metadata: { flags_detectados: flags },
           ordem: ordemAssistente,
         })
