@@ -120,13 +120,25 @@ export async function POST(req: Request) {
         controller.close()
 
         // Persist assistant message with vocabulary enforcement
-        const cleanText = enforceVocabulary(fullText)
+        const { texto: cleanText, log: vocabLog } = enforceVocabulary(fullText)
+
+        if (vocabLog.length > 0) {
+          console.warn('[supervisor/vocab] substituições aplicadas', {
+            sessao_id,
+            substituicoes: vocabLog,
+            total: vocabLog.reduce((a, s) => a + s.count, 0),
+          })
+        }
+
         const flags = detectFlags(cleanText)
         await supabase.from('mensagens').insert({
           sessao_supervisor_id: sessao_id,
           papel: 'assistant',
           conteudo: cleanText,
-          metadata: { flags_detectados: flags },
+          metadata: {
+            flags_detectados: flags,
+            vocab_substituicoes: vocabLog.length > 0 ? vocabLog : undefined,
+          },
           ordem: ordemAssistente,
         })
 

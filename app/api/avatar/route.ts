@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { getAvatar } from '@/lib/content/avatares'
+import { enforceVocabulary } from '@/lib/anthropic/vocabulary-filter'
 import { z } from 'zod'
 
 const StreamSchema = z.object({
@@ -101,11 +102,23 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
 
+        // Persist with vocabulary enforcement before saving to DB
+        const { texto: cleanText, log: vocabLog } = enforceVocabulary(fullText)
+
+        if (vocabLog.length > 0) {
+          console.warn('[avatar/vocab] substituições aplicadas', {
+            sessao_id,
+            avatar_slug: sessao.avatar_slug,
+            substituicoes: vocabLog,
+            total: vocabLog.reduce((a, s) => a + s.count, 0),
+          })
+        }
+
         await supabase.from('mensagens').insert({
           sessao_avatar_id: sessao_id,
           papel: 'assistant',
-          conteudo: fullText,
-          metadata: {},
+          conteudo: cleanText,
+          metadata: { vocab_substituicoes: vocabLog.length > 0 ? vocabLog : undefined },
           ordem: ordemAssistente,
         })
       } catch (err) {
