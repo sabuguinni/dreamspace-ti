@@ -44,7 +44,7 @@ export function SinteseModulo({ resumo, ponteModulo, ponteSlug, ponteTitulo }: P
             {ponteModulo === 'Módulo II'
               ? 'Freud transforma o sonho de curiosidade filosófica em ferramenta de trabalho. Veremos como.'
               : ponteModulo === 'Módulo IV'
-              ? 'Adler reposiciona o sonho: não olha para o passado mas para o futuro do cliente.'
+              ? 'Hillman propõe ficar com a imagem tal como ela é, sem a reduzir a símbolo ou a causa. Uma revolução na leitura dos sonhos.'
               : 'O próximo módulo aprofunda o que aprendeste aqui.'}
           </p>
         </div>
