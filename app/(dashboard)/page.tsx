@@ -57,7 +57,9 @@ export default async function DashboardPage() {
 
   const p = profile as Profile
   const citacao = getCitacaoDoDia()
-  const primeiroNome = p.nome_completo.split(' ')[0]
+  const primeiroNome = p.nome_completo.includes('@')
+    ? p.nome_completo.split('@')[0]
+    : p.nome_completo.split(' ')[0]
 
   // Lógica do próximo passo
   function proximoPasso(): { titulo: string; descricao: string; href: string; cta: string } {
