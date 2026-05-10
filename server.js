@@ -83,12 +83,19 @@ function buildSetupMessage(modelName, systemPrompt, voiceName, resumptionHandle)
 
 /**
  * STT-only setup for supervisor hybrid mode.
- * Uses TEXT modality so Gemini transcribes audio but doesn't synthesise speech.
- * inputAudioTranscription captures what the user says; model text output is ignored.
+ *
+ * IMPORTANT: gemini-2.5-flash-native-audio-* models require responseModalities:['AUDIO']
+ * and cannot be used for text-only output. We MUST use gemini-2.0-flash-live-001 here —
+ * it is the only Gemini Live model that accepts audio input and returns TEXT modality.
+ * Using the native-audio model with TEXT modality causes code=1007 ("Cannot extract voices
+ * from a non-audio request") and a reconnect loop.
+ *
+ * inputAudioTranscription captures what the user says; model text output is ignored
+ * (Claude handles the actual response via /api/supervisor/voice-turn).
  */
-function buildSetupMessageStt(modelName, resumptionHandle) {
+function buildSetupMessageStt(resumptionHandle) {
   const setup = {
-    model: modelName,
+    model: 'models/gemini-2.0-flash-live-001',   // MUST NOT use native-audio model
     generationConfig: {
       responseModalities: ['TEXT'],
     },
@@ -144,7 +151,7 @@ function connectToGemini(socket, session) {
   ws.on('open', () => {
     console.log(`[GeminiProxy] WS OPEN for socket ${socket.id}`)
     const setupMsg = session.type === 'supervisor_stt'
-      ? buildSetupMessageStt(session.modelName, session.resumptionHandle)
+      ? buildSetupMessageStt(session.resumptionHandle)
       : buildSetupMessage(session.modelName, session.systemPrompt, session.voiceName, session.resumptionHandle)
     ws.send(JSON.stringify(setupMsg))
   })
@@ -204,6 +211,15 @@ function connectToGemini(socket, session) {
     ) {
       activeSessions.delete(socket.id)
       socket.emit('gemini:closed', { code, reason: reasonStr })
+      return
+    }
+
+    // code=1007 = Gemini configuration/policy error (e.g. wrong modality for model).
+    // Retrying the same broken setup would just loop forever — fail fast instead.
+    if (code === 1007) {
+      console.error(`[GeminiProxy] Fatal config error for socket ${socket.id} (1007): ${reasonStr}`)
+      activeSessions.delete(socket.id)
+      socket.emit('gemini:error', { message: `Erro de configuração Gemini: ${reasonStr}` })
       return
     }
 
