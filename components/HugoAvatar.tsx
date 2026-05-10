@@ -21,6 +21,7 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
   const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [balanceCents, setBalanceCents] = useState<number | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [insufficientVoice, setInsufficientVoice] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -34,7 +35,10 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
 
     fetch('/api/credits')
       .then(r => r.json())
-      .then(d => setBalanceCents(d.balanceCents ?? 0))
+      .then(d => {
+        setBalanceCents(d.balanceCents ?? 0)
+        setIsAdmin(d.isAdmin ?? false)
+      })
       .catch(() => {})
   }, [])
 
@@ -66,9 +70,11 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
         body: JSON.stringify({ text }),
       })
       if (res.status === 402) {
-        setInsufficientVoice(true)
-        setVoiceEnabled(false)
-        localStorage.setItem('hugo_voice_enabled', 'false')
+        if (!isAdmin) {
+          setInsufficientVoice(true)
+          setVoiceEnabled(false)
+          localStorage.setItem('hugo_voice_enabled', 'false')
+        }
         return
       }
       if (!res.ok) return
@@ -83,7 +89,10 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
       audio.onended = () => {
         setIsPlaying(false)
         URL.revokeObjectURL(url)
-        fetch('/api/credits').then(r => r.json()).then(d => setBalanceCents(d.balanceCents ?? 0)).catch(() => {})
+        fetch('/api/credits').then(r => r.json()).then(d => {
+          setBalanceCents(d.balanceCents ?? 0)
+          setIsAdmin(d.isAdmin ?? false)
+        }).catch(() => {})
       }
       audio.onerror = () => setIsPlaying(false)
       await audio.play()
@@ -156,10 +165,10 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
       setIsLoading(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, isLoading, msgs, voiceEnabled])
+  }, [input, isAdmin, isLoading, msgs, voiceEnabled])
 
   const lmsUrl = 'https://app.transpersonalinternational.com/my-credits'
-  const balanceLabel = balanceCents !== null ? `${(balanceCents / 100).toFixed(2)}€` : '…'
+  const balanceLabel = isAdmin ? '∞' : (balanceCents !== null ? `${(balanceCents / 100).toFixed(2)}€` : '…')
 
   return (
     <div className="flex flex-col" style={{ width: '100%', height: '100%', minHeight: 0 }}>
@@ -226,7 +235,7 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
       </div>
 
       {/* Insufficient voice warning */}
-      {insufficientVoice && (
+      {insufficientVoice && !isAdmin && (
         <div
           className="px-4 py-2 text-xs text-center border-b"
           style={{ background: 'oklch(0.98 0.02 85)', borderColor: 'var(--border)', color: 'var(--muted-foreground)' }}

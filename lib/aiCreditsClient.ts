@@ -14,6 +14,7 @@ export interface LmsUser {
   userId: number
   balanceCents: number
   hasBalance: boolean
+  isAdmin?: boolean
 }
 
 export interface Pricing {

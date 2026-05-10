@@ -29,7 +29,8 @@ export async function POST(req: Request) {
   const minutes = estimateMinutes(text)
   const costCents = Math.max(1, Math.ceil(minutes * CENTS_PER_MINUTE))
 
-  if (lmsUser.balanceCents < costCents) {
+  // Admins têm bypass — o LMS trata internamente, não bloquear aqui
+  if (!lmsUser.isAdmin && lmsUser.balanceCents < costCents) {
     return NextResponse.json(
       { error: 'Saldo insuficiente para usar voz', code: 'INSUFFICIENT_BALANCE', costCents, balanceCents: lmsUser.balanceCents },
       { status: 402 },
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
 
   try {
     const audioBuffer = await synthesize(text)
-    // Debitar só após síntese bem-sucedida
+    // Debitar após síntese (LMS faz bypass automático para admins)
     await debit(lmsUser.userId, 'voice_tts', minutes, 'TTS Hugo').catch(err => {
       console.error('[TTS] debit failed after synthesis:', err.message)
     })

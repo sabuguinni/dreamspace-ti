@@ -15,6 +15,7 @@ export async function GET() {
   return NextResponse.json({
     balanceCents: lmsUser.balanceCents,
     hasBalance: lmsUser.hasBalance,
+    isAdmin: lmsUser.isAdmin ?? false,
     userId: lmsUser.userId,
   })
 }
