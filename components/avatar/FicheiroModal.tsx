@@ -1,24 +1,42 @@
 'use client'
 
 import { useState } from 'react'
-import type { FicheiroSecreto } from '@/lib/types'
+import type { FicheiroSecreto, AvatarReport } from '@/lib/types'
 
 interface Props {
   nome: string
   ficheiro: FicheiroSecreto
+  report?: AvatarReport | null
+  isLoadingReport?: boolean
   onClose: () => void
 }
 
 const TABS = [
-  { key: 'historia',  label: 'História real' },
-  { key: 'ferida',    label: 'Ferida central' },
-  { key: 'motivo',    label: 'Motivo verdadeiro' },
-  { key: 'sessao',    label: 'A tua sessão' },
+  { key: 'historia',   label: 'História real' },
+  { key: 'ferida',     label: 'Ferida central' },
+  { key: 'motivo',     label: 'Motivo verdadeiro' },
+  { key: 'sessao',     label: 'A tua sessão' },
+  { key: 'desempenho', label: 'O teu desempenho' },
 ] as const
 
 type TabKey = typeof TABS[number]['key']
 
-export function FicheiroModal({ nome, ficheiro, onClose }: Props) {
+const DIMENSOES: { key: keyof AvatarReport; label: string }[] = [
+  { key: 'abordagemSocratica',        label: 'Abordagem Socrática' },
+  { key: 'escutaAtiva',               label: 'Escuta Activa' },
+  { key: 'respeitoSimbologiaPessoal', label: 'Respeito pela Simbologia Pessoal' },
+  { key: 'evitouInterpretacaoDirecta',label: 'Evitou Interpretação Directa' },
+  { key: 'criouEspacoSeguro',         label: 'Criou Espaço Seguro' },
+  { key: 'progressoComAvatar',        label: 'Progresso com o Avatar' },
+]
+
+function scoreColor(score: number): string {
+  if (score >= 70) return 'oklch(0.52 0.18 148)'  // green
+  if (score >= 50) return 'oklch(0.72 0.16 72)'   // yellow
+  return 'oklch(0.52 0.22 25)'                    // red
+}
+
+export function FicheiroModal({ nome, ficheiro, report, isLoadingReport, onClose }: Props) {
   const [tab, setTab] = useState<TabKey>('historia')
   const [checked, setChecked] = useState<Record<string, boolean>>({})
 
@@ -148,6 +166,172 @@ export function FicheiroModal({ nome, ficheiro, onClose }: Props) {
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {tab === 'desempenho' && (
+            <div className="space-y-5">
+              {isLoadingReport ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-3">
+                  <span className="inline-flex gap-1">
+                    <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--primary)', animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--primary)', animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--primary)', animationDelay: '300ms' }} />
+                  </span>
+                  <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                    A gerar relatório de desempenho…
+                  </p>
+                </div>
+              ) : !report ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
+                  <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                    O relatório ainda não está disponível.
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Fecha e abre novamente o ficheiro daqui a momentos.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Score circle */}
+                  <div className="flex flex-col items-center gap-2 pb-2">
+                    <div
+                      className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold"
+                      style={{
+                        border: `4px solid ${scoreColor(report.overallScore)}`,
+                        color: scoreColor(report.overallScore),
+                        background: 'var(--card)',
+                      }}
+                    >
+                      {report.overallScore}
+                    </div>
+                    <p className="text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>
+                      Pontuação global
+                    </p>
+                  </div>
+
+                  {/* Summary */}
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--foreground)' }}>
+                    {report.summary}
+                  </p>
+
+                  {/* 6 Dimensions */}
+                  <div className="space-y-4 pt-1">
+                    {DIMENSOES.map(({ key, label }) => {
+                      const dim = report[key] as { score: number; feedback: string } | undefined
+                      if (!dim) return null
+                      const s = Math.min(100, Math.max(0, dim.score ?? 0))
+                      return (
+                        <div key={key} className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>{label}</span>
+                            <span className="text-xs font-bold" style={{ color: scoreColor(s) }}>{s}/100</span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                            <div
+                              className="h-1.5 rounded-full transition-all"
+                              style={{ width: `${s}%`, background: scoreColor(s) }}
+                            />
+                          </div>
+                          {dim.feedback && (
+                            <p className="text-xs leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
+                              {dim.feedback}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Techniques detected */}
+                  {Array.isArray(report.techniquesDetected) && report.techniquesDetected.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>
+                        Técnicas detectadas
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {report.techniquesDetected.map(t => (
+                          <span
+                            key={t}
+                            className="px-2 py-0.5 rounded-full text-xs"
+                            style={{ background: 'oklch(0.375 0.132 288 / 0.1)', color: 'oklch(0.375 0.132 288)', border: '1px solid oklch(0.375 0.132 288 / 0.3)' }}
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Strengths */}
+                  {Array.isArray(report.strengths) && report.strengths.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>
+                        Pontos fortes
+                      </p>
+                      <ul className="space-y-1">
+                        {report.strengths.map(s => (
+                          <li key={s} className="flex items-start gap-2 text-sm" style={{ color: 'var(--foreground)' }}>
+                            <span style={{ color: 'oklch(0.52 0.18 148)' }}>✓</span>
+                            <span>{s}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Improvements */}
+                  {Array.isArray(report.improvements) && report.improvements.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>
+                        Áreas a melhorar
+                      </p>
+                      <ul className="space-y-1">
+                        {report.improvements.map(imp => (
+                          <li key={imp} className="flex items-start gap-2 text-sm" style={{ color: 'var(--foreground)' }}>
+                            <span style={{ color: 'oklch(0.72 0.16 72)' }}>→</span>
+                            <span>{imp}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Critical errors (only if non-empty) */}
+                  {Array.isArray(report.criticalErrors) && report.criticalErrors.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium uppercase tracking-widest" style={{ color: 'oklch(0.52 0.22 25)' }}>
+                        Erros críticos
+                      </p>
+                      <ul className="space-y-1">
+                        {report.criticalErrors.map(e => (
+                          <li key={e} className="flex items-start gap-2 text-sm" style={{ color: 'oklch(0.52 0.22 25)' }}>
+                            <span>!</span>
+                            <span>{e}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Next steps */}
+                  {report.nextSteps && (
+                    <div
+                      className="rounded-md p-4 text-sm leading-relaxed"
+                      style={{
+                        background: 'oklch(0.26 0.15 252 / 0.06)',
+                        borderLeft: '3px solid oklch(0.26 0.15 252 / 0.5)',
+                        color: 'var(--foreground)',
+                      }}
+                    >
+                      <p className="text-xs font-medium mb-1" style={{ color: 'oklch(0.26 0.15 252)' }}>
+                        Próximos passos
+                      </p>
+                      {report.nextSteps}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>

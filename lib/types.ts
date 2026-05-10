@@ -101,6 +101,27 @@ export interface FicheiroSecreto {
   indicadoresProgresso: string[]
 }
 
+export interface AvatarDimensaoReport {
+  score: number
+  feedback: string
+}
+
+export interface AvatarReport {
+  overallScore: number
+  summary: string
+  abordagemSocratica: AvatarDimensaoReport
+  escutaAtiva: AvatarDimensaoReport
+  respeitoSimbologiaPessoal: AvatarDimensaoReport
+  evitouInterpretacaoDirecta: AvatarDimensaoReport
+  criouEspacoSeguro: AvatarDimensaoReport
+  progressoComAvatar: AvatarDimensaoReport
+  techniquesDetected: string[]
+  strengths: string[]
+  improvements: string[]
+  criticalErrors: string[]
+  nextSteps: string
+}
+
 export interface Avatar {
   slug: string
   nome: string

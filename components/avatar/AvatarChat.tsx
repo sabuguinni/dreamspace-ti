@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
-import type { SessaoAvatar, Mensagem } from '@/lib/types'
+import type { SessaoAvatar, Mensagem, AvatarReport } from '@/lib/types'
 import type { FicheiroSecreto } from '@/lib/types'
 import { MarkdownContent } from '@/components/supervisor/MarkdownContent'
 import { FicheiroModal } from './FicheiroModal'
@@ -54,10 +54,21 @@ export function AvatarChat({
   const [isConcluindo, setIsConcluindo] = useState(false)
   const [mostrarConfirmConcluir, setMostrarConfirmConcluir] = useState(false)
   const [mostrarFicheiro, setMostrarFicheiro] = useState(false)
+  const [report, setReport] = useState<AvatarReport | null>(null)
+  const [isGerandoRelatorio, setIsGerandoRelatorio] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const concluida = sessao.estado === 'concluida'
+
+  // Load cached report for already-concluded sessions
+  useEffect(() => {
+    if (!concluida || report) return
+    const notas = (sessaoInicial.notas_evolucao ?? {}) as Record<string, unknown>
+    if (notas.avatar_report) {
+      setReport(notas.avatar_report as AvatarReport)
+    }
+  }, [concluida]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const color = AVATAR_COLORS[avatarSlug] ?? { bg: 'oklch(0.42 0.08 252)', fg: 'white' }
 
@@ -153,6 +164,23 @@ export function AvatarChat({
         setMostrarConfirmConcluir(false)
         toast.success('Sessão concluída.')
         setMostrarFicheiro(true)
+
+        // Generate AI report in background (non-blocking)
+        setIsGerandoRelatorio(true)
+        fetch(`/api/avatar/sessoes/${sessaoId}/report`, { method: 'POST' })
+          .then(async r => {
+            if (r.status === 402) {
+              toast.error('Créditos insuficientes para gerar relatório de desempenho.')
+              return
+            }
+            if (!r.ok) return
+            const data = await r.json() as { report: AvatarReport; score: number }
+            setReport(data.report)
+          })
+          .catch(err => {
+            console.error('[report] fetch failed:', err)
+          })
+          .finally(() => setIsGerandoRelatorio(false))
       }
     } catch {
       toast.error('Não foi possível continuar a sessão. Tenta daqui a pouco.')
@@ -167,6 +195,8 @@ export function AvatarChat({
         <FicheiroModal
           nome={avatarNome}
           ficheiro={ficheiro}
+          report={report}
+          isLoadingReport={isGerandoRelatorio}
           onClose={() => setMostrarFicheiro(false)}
         />
       )}
