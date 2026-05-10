@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
-import type { SessaoSupervisor, Mensagem } from '@/lib/types'
+import type { SessaoSupervisor, Mensagem, SupervisorReport } from '@/lib/types'
 import { MarkdownContent } from './MarkdownContent'
 import { MetodoBadge } from './MetodoBadge'
 import { FlagBadge } from './FlagBadge'
@@ -40,6 +40,133 @@ const VOICE_KEY = 'supervisor_voice_enabled'
 const SUPERVISOR_COLOR = 'oklch(0.631 0.118 65)'  // warm amber — supervisor accent
 const HUGO_COLOR = 'oklch(0.5 0.18 290)'           // purple — Hugo avatar
 
+// ─── Report sub-components ────────────────────────────────────────────────────
+
+function scoreColor(score: number): string {
+  if (score >= 80) return 'oklch(0.55 0.18 145)'  // green
+  if (score >= 60) return 'oklch(0.65 0.18 65)'   // amber
+  return 'oklch(0.52 0.22 25)'                     // red
+}
+
+function ScoreCircle({ score }: { score: number }) {
+  const color = scoreColor(score)
+  return (
+    <div
+      className="flex items-center justify-center w-16 h-16 rounded-full border-4 text-lg font-bold shrink-0"
+      style={{ borderColor: color, color, background: `${color}18` }}
+    >
+      {score}
+    </div>
+  )
+}
+
+function DimensaoCard({ label, dimensao }: { label: string; dimensao: { score: number; feedback: string } }) {
+  const color = scoreColor(dimensao.score)
+  return (
+    <div className="rounded-lg border p-3 space-y-1.5" style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>{label}</span>
+        <span className="text-xs font-bold shrink-0" style={{ color }}>{dimensao.score}</span>
+      </div>
+      {/* Score bar */}
+      <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--muted)' }}>
+        <div className="h-full rounded-full transition-all" style={{ width: `${dimensao.score}%`, background: color }} />
+      </div>
+      <p className="text-xs leading-snug" style={{ color: 'var(--muted-foreground)' }}>{dimensao.feedback}</p>
+    </div>
+  )
+}
+
+function SupervisorReportPanel({ report }: { report: SupervisorReport }) {
+  const overallColor = scoreColor(report.overallScore)
+  return (
+    <div
+      className="mt-6 rounded-2xl border p-5 space-y-5"
+      style={{ borderColor: `${overallColor}60`, background: 'var(--card)', borderLeft: `4px solid ${overallColor}` }}
+    >
+      {/* Header */}
+      <div className="flex items-start gap-4">
+        <ScoreCircle score={report.overallScore} />
+        <div className="flex-1 min-w-0 space-y-1">
+          <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Avaliação da Sessão</p>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>{report.summary}</p>
+        </div>
+      </div>
+
+      {/* 6 Dimensions grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <DimensaoCard label="Método aplicado" dimensao={report.metodoAplicado} />
+        <DimensaoCard label="Perguntas socráticas" dimensao={report.perguntasSocraticas} />
+        <DimensaoCard label="Evitou interpretação directa" dimensao={report.evitouInterpretacaoDirecta} />
+        <DimensaoCard label="Exploração do sonho" dimensao={report.exploracaoElementosSonho} />
+        <DimensaoCard label="Ligação à vida concreta" dimensao={report.ligacaoVidaConcreta} />
+        <DimensaoCard label="Linguagem terapêutica" dimensao={report.linguagemTerapeutica} />
+      </div>
+
+      {/* Strengths + Improvements */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'oklch(0.55 0.18 145)' }}>Pontos fortes</p>
+          <ul className="space-y-1">
+            {report.pontosFortesObservados.map((p, i) => (
+              <li key={i} className="text-xs flex gap-1.5 items-start" style={{ color: 'var(--foreground)' }}>
+                <span style={{ color: 'oklch(0.55 0.18 145)', marginTop: '0.15em' }}>✓</span>
+                <span>{p}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'oklch(0.65 0.18 65)' }}>Áreas a desenvolver</p>
+          <ul className="space-y-1">
+            {report.areasMelhoria.map((a, i) => (
+              <li key={i} className="text-xs flex gap-1.5 items-start" style={{ color: 'var(--foreground)' }}>
+                <span style={{ color: 'oklch(0.65 0.18 65)', marginTop: '0.15em' }}>→</span>
+                <span>{a}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      {/* Next steps */}
+      <div className="rounded-lg border p-3" style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
+        <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--muted-foreground)' }}>Próximos passos</p>
+        <p className="text-sm leading-relaxed" style={{ color: 'var(--foreground)' }}>{report.proximosPassos}</p>
+      </div>
+    </div>
+  )
+}
+
+function ReportLoadingIndicator() {
+  return (
+    <div className="mt-6 flex items-center gap-3 justify-center rounded-xl border p-5" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
+      <span className="inline-flex gap-1">
+        {[0, 150, 300].map(d => (
+          <span key={d} className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: SUPERVISOR_COLOR, animationDelay: `${d}ms` }} />
+        ))}
+      </span>
+      <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>A gerar avaliação da sessão…</p>
+    </div>
+  )
+}
+
+function ReportGenerateButton({ onGenerate }: { onGenerate: () => void }) {
+  return (
+    <div className="mt-6 flex flex-col items-center gap-2 rounded-xl border p-5" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
+      <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Avaliação IA disponível para esta sessão.</p>
+      <button
+        type="button"
+        onClick={onGenerate}
+        className="text-sm px-4 h-8 rounded-full font-medium transition-colors"
+        style={{ background: SUPERVISOR_COLOR, color: 'white' }}
+      >
+        Gerar avaliação
+      </button>
+    </div>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initialInput }: Props) {
@@ -74,6 +201,10 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
   // Guard: prevent double-send when both VAD and manual button fire close together
   const isSendingRef = useRef(false)
 
+  // ── AI Report ────────────────────────────────────────────────────────────────
+  const [supervisorReport, setSupervisorReport] = useState<SupervisorReport | null>(null)
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false)
+
   // ── Shared ───────────────────────────────────────────────────────────────────
   const [supervisorMode, setSupervisorMode] = useState<SupervisorMode>('text')
   const [isConcluindo, setIsConcluindo] = useState(false)
@@ -93,7 +224,18 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
       .then(r => r.json())
       .then(d => { setBalanceCents(d.balanceCents ?? 0); setIsAdmin(d.isAdmin ?? false) })
       .catch(() => {})
-  }, [])
+
+    // Load existing report from mensagens (for concluded sessions)
+    if (sessaoInicial.estado === 'concluida') {
+      const reportMsg = mensagensIniciais.find(
+        m => m.papel === 'system' &&
+             (m.metadata as Record<string, unknown>)?.type === 'supervisor_report'
+      )
+      if (reportMsg) {
+        try { setSupervisorReport(JSON.parse(reportMsg.conteudo) as SupervisorReport) } catch {}
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
@@ -335,6 +477,36 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
     gemini.connect()
   }
 
+  // ── AI Report generation ─────────────────────────────────────────────────
+  const generateReport = useCallback(async (voiceLines?: VoiceTranscriptLine[]) => {
+    if (isGeneratingReport) return
+    setIsGeneratingReport(true)
+    try {
+      const body: Record<string, unknown> = {}
+      if (voiceLines && voiceLines.length > 0) {
+        body.transcriptLines = voiceLines.map(l =>
+          l.role === 'user' ? `[Terapeuta]: ${l.text}` : `[Supervisor]: ${l.text}`
+        )
+      }
+      const res = await fetch(`/api/supervisor/sessoes/${sessaoId}/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        if (res.status === 422) return   // no content to evaluate — silent
+        console.error('[SessaoChat] report generation failed:', res.status)
+        return
+      }
+      const { report } = await res.json() as { report: SupervisorReport }
+      if (report) setSupervisorReport(report)
+    } catch (err) {
+      console.error('[SessaoChat] report error:', err)
+    } finally {
+      setIsGeneratingReport(false)
+    }
+  }, [sessaoId, isGeneratingReport])
+
   // ── Conclude (both modes) ─────────────────────────────────────────────────────
   async function handleConcluir() {
     setIsConcluindo(true)
@@ -361,6 +533,12 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
         setSessao(prev => ({ ...prev, estado: 'concluida' }))
         setMostrarConcluir(false)
         toast.success('Sessão concluída. Bom trabalho.')
+        // Generate AI evaluation report (non-blocking — uses voice lines to avoid race condition)
+        generateReport(
+          supervisorMode === 'voice' && voiceTranscriptLines.length > 0
+            ? voiceTranscriptLines
+            : undefined
+        )
       }
     } catch {
       toast.error('Não foi possível guardar a sessão. Tenta daqui a pouco.')
@@ -543,6 +721,16 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
                   )}
                 </div>
               ))}
+
+              {/* AI Report (text mode) */}
+              {concluida && (
+                isGeneratingReport
+                  ? <ReportLoadingIndicator />
+                  : supervisorReport
+                    ? <SupervisorReportPanel report={supervisorReport} />
+                    : <ReportGenerateButton onGenerate={() => generateReport()} />
+              )}
+
               <div ref={bottomRef} />
             </div>
 
@@ -667,6 +855,15 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
                     </button>
                   </div>
                 </div>
+              )}
+
+              {/* AI Report (voice mode) */}
+              {concluida && (
+                isGeneratingReport
+                  ? <ReportLoadingIndicator />
+                  : supervisorReport
+                    ? <SupervisorReportPanel report={supervisorReport} />
+                    : <ReportGenerateButton onGenerate={() => generateReport()} />
               )}
 
               <div ref={bottomRef} />

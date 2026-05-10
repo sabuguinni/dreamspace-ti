@@ -106,6 +106,27 @@ export interface AvatarDimensaoReport {
   feedback: string
 }
 
+// ─── Supervisor Report ────────────────────────────────────────────────────────
+
+export interface SupervisorDimensaoReport {
+  score: number    // 0–100
+  feedback: string
+}
+
+export interface SupervisorReport {
+  overallScore: number
+  summary: string
+  metodoAplicado: SupervisorDimensaoReport
+  perguntasSocraticas: SupervisorDimensaoReport
+  evitouInterpretacaoDirecta: SupervisorDimensaoReport
+  exploracaoElementosSonho: SupervisorDimensaoReport
+  ligacaoVidaConcreta: SupervisorDimensaoReport
+  linguagemTerapeutica: SupervisorDimensaoReport
+  pontosFortesObservados: string[]
+  areasMelhoria: string[]
+  proximosPassos: string
+}
+
 export interface AvatarReport {
   overallScore: number
   summary: string
