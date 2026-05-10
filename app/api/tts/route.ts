@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       },
     })
   } catch (err: any) {
-    if (err.message?.includes('OPENAI_API_KEY')) {
+    if (err.message?.includes('TTS_NOT_CONFIGURED') || err.message?.includes('OPENAI_API_KEY') || err.message?.includes('ELEVENLABS_API_KEY')) {
       return NextResponse.json({ error: 'Serviço de voz não configurado', code: 'TTS_NOT_CONFIGURED' }, { status: 503 })
     }
     console.error('[TTS] synthesis error:', err.message)
