@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     await debit(lmsUser.userId, 'voice_tts', minutes, 'TTS Hugo').catch(err => {
       console.error('[TTS] debit failed after synthesis:', err.message)
     })
-    return new Response(audioBuffer, {
+    return new Response(new Uint8Array(audioBuffer), {
       headers: {
         'Content-Type': 'audio/mpeg',
         'Content-Length': String(audioBuffer.length),
