@@ -27,13 +27,23 @@ interface UseGeminiLiveOptions {
   systemPrompt: string
   voiceName: string
   sessionId: string
-  /** 'supervisor' → server uses its own secure system prompt. 'avatar' (default) → uses systemPrompt. */
-  type?: 'supervisor' | 'avatar'
+  /**
+   * 'supervisor'     → bidirectional voice; server uses its own secure prompt.
+   * 'supervisor_stt' → STT-only hybrid mode; Gemini transcribes user audio,
+   *                    onUserSpeechFinal fires when the user finishes a turn.
+   * 'avatar'         → default bidirectional voice with client system prompt.
+   */
+  type?: 'supervisor' | 'supervisor_stt' | 'avatar'
   onAudioChunk: (pcmBase64: string) => void
   onTextResponse: (text: string) => void
   onTranscription: (text: string, isUser: boolean) => void
   onTurnComplete: () => void
   onError: (error: string) => void
+  /**
+   * Called when Gemini VAD detects end of user speech in 'supervisor_stt' mode.
+   * Receives the complete transcription of the user's turn.
+   */
+  onUserSpeechFinal?: (text: string) => void
 }
 
 // ─── Audio helpers ────────────────────────────────────────────────────────────
@@ -91,6 +101,12 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
 
   const optionsRef = useRef(options)
   optionsRef.current = options
+
+  // STT-only mode: accumulates user speech between VAD boundaries
+  const sttBufferRef = useRef<string>('')
+
+  // Whether audio capture is paused (used to suppress echo while AI speaks)
+  const capturePausedRef = useRef(false)
 
   /**
    * Call this synchronously inside an onClick handler to pre-create the
@@ -174,7 +190,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
       processorRef.current = processor
 
       processor.onaudioprocess = (e) => {
-        if (!socket.connected) return
+        if (!socket.connected || capturePausedRef.current) return
         const inputData = e.inputBuffer.getChannelData(0)
         const resampled = resampleAudio(inputData, context.sampleRate, 16000)
         const int16 = float32ToInt16(resampled)
@@ -225,8 +241,8 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
         socket.emit('gemini:connect', {
           sessionId: opts.sessionId,
           model,
-          // For supervisor: server uses its own secure prompt; we send empty string.
-          systemPrompt: opts.type === 'supervisor' ? '' : opts.systemPrompt,
+          // For supervisor modes: server uses its own secure prompt; we send empty string.
+          systemPrompt: (opts.type === 'supervisor' || opts.type === 'supervisor_stt') ? '' : opts.systemPrompt,
           voiceName: opts.voiceName,
           type: opts.type ?? 'avatar',
         })
@@ -254,34 +270,60 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
         const o = optionsRef.current
         if (!o) return
 
-        const modelTurn = content.modelTurn as { parts?: { inlineData?: { data: string }; text?: string }[] } | undefined
-        if (modelTurn?.parts) {
-          for (const part of modelTurn.parts) {
-            if (part.inlineData?.data) {
-              o.onAudioChunk(part.inlineData.data)
-              enqueueAudio(part.inlineData.data)
+        const isSttMode = o.type === 'supervisor_stt'
+
+        // Audio / text output from model — only relevant in non-STT modes
+        if (!isSttMode) {
+          const modelTurn = content.modelTurn as { parts?: { inlineData?: { data: string }; text?: string }[] } | undefined
+          if (modelTurn?.parts) {
+            for (const part of modelTurn.parts) {
+              if (part.inlineData?.data) {
+                o.onAudioChunk(part.inlineData.data)
+                enqueueAudio(part.inlineData.data)
+              }
+              if (part.text) o.onTextResponse(part.text)
             }
-            if (part.text) o.onTextResponse(part.text)
+          }
+
+          if (content.interrupted) {
+            playbackQueueRef.current = []
+            isPlayingRef.current = false
           }
         }
 
-        if (content.interrupted) {
-          playbackQueueRef.current = []
-          isPlayingRef.current = false
-        }
-
-        if (content.turnComplete) o.onTurnComplete()
-
+        // User speech transcription
         const inputTranscription = content.inputTranscription as { text?: string } | undefined
         if (inputTranscription?.text) {
-          o.onTranscription(inputTranscription.text, true)
-          transcriptRef.current.push(`[Terapeuta]: ${inputTranscription.text}`)
+          if (isSttMode) {
+            // Accumulate into STT buffer; also surface via onTranscription for live display
+            sttBufferRef.current += inputTranscription.text + ' '
+            o.onTranscription(inputTranscription.text, true)
+          } else {
+            o.onTranscription(inputTranscription.text, true)
+            transcriptRef.current.push(`[Terapeuta]: ${inputTranscription.text}`)
+          }
         }
 
-        const outputTranscription = content.outputTranscription as { text?: string } | undefined
-        if (outputTranscription?.text) {
-          o.onTranscription(outputTranscription.text, false)
-          transcriptRef.current.push(`[Avatar]: ${outputTranscription.text}`)
+        // Model audio transcription — only for bidirectional audio modes
+        if (!isSttMode) {
+          const outputTranscription = content.outputTranscription as { text?: string } | undefined
+          if (outputTranscription?.text) {
+            o.onTranscription(outputTranscription.text, false)
+            transcriptRef.current.push(`[Avatar]: ${outputTranscription.text}`)
+          }
+        }
+
+        // Turn complete
+        if (content.turnComplete) {
+          if (isSttMode) {
+            // In STT mode, turnComplete means the user finished speaking.
+            // Deliver the complete accumulated transcription.
+            const finalText = sttBufferRef.current.trim()
+            sttBufferRef.current = ''
+            if (finalText && o.onUserSpeechFinal) o.onUserSpeechFinal(finalText)
+          } else {
+            o.onTurnComplete()
+          }
         }
       })
 
@@ -334,6 +376,13 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
   const getTranscript = useCallback(() => transcriptRef.current.slice(), [])
   const clearTranscript = useCallback(() => { transcriptRef.current = [] }, [])
 
+  /** Pause mic capture while AI audio is playing (prevents echo). */
+  const pauseCapture = useCallback(() => { capturePausedRef.current = true }, [])
+  /** Resume mic capture after AI audio finishes. */
+  const resumeCapture = useCallback(() => { capturePausedRef.current = false }, [])
+  /** Clear the STT accumulation buffer (e.g. after manual send in supervisor_stt mode). */
+  const clearSttBuffer = useCallback(() => { sttBufferRef.current = '' }, [])
+
   useEffect(() => {
     return () => {
       if (socketRef.current) {
@@ -344,5 +393,15 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
     }
   }, [cleanup])
 
-  return { state, connect, disconnect, getTranscript, clearTranscript, resumePlayback }
+  return {
+    state,
+    connect,
+    disconnect,
+    getTranscript,
+    clearTranscript,
+    resumePlayback,
+    pauseCapture,
+    resumeCapture,
+    clearSttBuffer,
+  }
 }

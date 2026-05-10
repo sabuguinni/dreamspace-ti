@@ -22,6 +22,11 @@ type SupervisorMode = 'text' | 'voice'
 
 type VoiceTranscriptLine = { role: 'user' | 'supervisor'; text: string }
 
+interface HybridHistoryItem {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 interface Props {
   sessaoId: string
   sessaoInicial: SessaoSupervisor
@@ -33,6 +38,7 @@ const MODE_KEY = 'supervisor_mode'
 const VOICE_KEY = 'supervisor_voice_enabled'
 
 const SUPERVISOR_COLOR = 'oklch(0.631 0.118 65)'  // warm amber — supervisor accent
+const HUGO_COLOR = 'oklch(0.5 0.18 290)'           // purple — Hugo avatar
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -52,12 +58,21 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
   const [isPlaying, setIsPlaying] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  // ── Voice-mode state ─────────────────────────────────────────────────────────
+  // ── Voice-mode (hybrid) state ────────────────────────────────────────────────
   const [voiceTranscriptLines, setVoiceTranscriptLines] = useState<VoiceTranscriptLine[]>([])
-  const pendingOutputRef = useRef<string>('')
-  const pendingInputRef = useRef<string>('')
+  const [hybridHistory, setHybridHistory] = useState<HybridHistoryItem[]>([])
+  // Keep history accessible in callbacks without stale-closure issues
+  const hybridHistoryRef = useRef<HybridHistoryItem[]>([])
+  useEffect(() => { hybridHistoryRef.current = hybridHistory }, [hybridHistory])
+  const [liveUserSpeech, setLiveUserSpeech] = useState<string>('')
+  const [isHugoThinking, setIsHugoThinking] = useState(false)
+  const [isHugoSpeaking, setIsHugoSpeaking] = useState(false)
+  const hugoAudioRef = useRef<HTMLAudioElement | null>(null)
   const voiceStartRef = useRef<number | null>(null)
   const [voiceErrorMsg, setVoiceErrorMsg] = useState<string>('')
+
+  // Guard: prevent double-send when both VAD and manual button fire close together
+  const isSendingRef = useRef(false)
 
   // ── Shared ───────────────────────────────────────────────────────────────────
   const [supervisorMode, setSupervisorMode] = useState<SupervisorMode>('text')
@@ -84,25 +99,69 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [voiceTranscriptLines])
 
-  // ── Gemini Live callbacks ─────────────────────────────────────────────────────
-  const handleVoiceTranscription = useCallback((text: string, isUser: boolean) => {
-    if (isUser) pendingInputRef.current += text + ' '
-    else pendingOutputRef.current += text + ' '
-  }, [])
+  // ── Hybrid voice: handle user speech final (from Gemini VAD or manual send) ──
+  const handleUserSpeechFinal = useCallback(async (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    if (isSendingRef.current) return   // debounce: prevent VAD + button double-fire
+    isSendingRef.current = true
 
-  const handleVoiceTurnComplete = useCallback(() => {
-    const userTurn = pendingInputRef.current.trim()
-    const supervisorTurn = pendingOutputRef.current.trim()
-    setVoiceTranscriptLines(prev => {
-      const next = [...prev]
-      if (userTurn) next.push({ role: 'user', text: userTurn })
-      if (supervisorTurn) next.push({ role: 'supervisor', text: supervisorTurn })
-      return next
-    })
-    pendingInputRef.current = ''
-    pendingOutputRef.current = ''
-  }, [])
+    // Snapshot history now (ref always holds latest value without stale closures)
+    const historySnapshot = [...hybridHistoryRef.current]
 
+    setLiveUserSpeech('')
+    setVoiceTranscriptLines(prev => [...prev, { role: 'user', text: trimmed }])
+    setIsHugoThinking(true)
+
+    try {
+      const res = await fetch('/api/supervisor/voice-turn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: trimmed, sessionId: sessaoId, history: historySnapshot }),
+      })
+
+      if (res.status === 402) {
+        toast.warning('Saldo insuficiente. Recarrega créditos na página Créditos.')
+        return
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+      const { text: responseText, audio: audioBase64 } = await res.json() as { text: string; audio: string }
+
+      setVoiceTranscriptLines(prev => [...prev, { role: 'supervisor', text: responseText }])
+      setHybridHistory([
+        ...historySnapshot,
+        { role: 'user', content: trimmed },
+        { role: 'assistant', content: responseText },
+      ])
+
+      // Play Hugo's voice — pause mic while speaking to suppress echo
+      if (audioBase64) {
+        gemini.pauseCapture()
+        setIsHugoSpeaking(true)
+        if (hugoAudioRef.current) hugoAudioRef.current.pause()
+        const audio = new Audio(`data:audio/mpeg;base64,${audioBase64}`)
+        hugoAudioRef.current = audio
+        const onDone = () => {
+          setIsHugoSpeaking(false)
+          gemini.resumeCapture()
+          fetch('/api/credits').then(r => r.json()).then(d => setBalanceCents(d.balanceCents ?? 0)).catch(() => {})
+        }
+        audio.onended = onDone
+        audio.onerror = onDone
+        await audio.play().catch(onDone)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+      toast.error(`Erro ao contactar Supervisor: ${msg}`)
+    } finally {
+      setIsHugoThinking(false)
+      isSendingRef.current = false
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessaoId])
+
+  // ── Gemini Live (supervisor STT-only hybrid mode) ─────────────────────────────
   const handleVoiceError = useCallback((msg: string) => {
     setVoiceErrorMsg(msg)
     toast.error(msg)
@@ -111,14 +170,18 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
   const gemini = useGeminiLive(
     supervisorMode === 'voice' && !concluida
       ? {
-          type: 'supervisor',
-          systemPrompt: '',        // server uses its own secure prompt
-          voiceName: 'Aoede',      // calm, feminine — ideal for socratic supervisor
+          type: 'supervisor_stt',
+          systemPrompt: '',           // server handles setup; not used in STT mode
+          voiceName: 'Puck',          // not used — TEXT modality only
           sessionId: sessaoId,
           onAudioChunk: () => {},
           onTextResponse: () => {},
-          onTranscription: handleVoiceTranscription,
-          onTurnComplete: handleVoiceTurnComplete,
+          onTranscription: (text, isUser) => {
+            // Live partial transcription display
+            if (isUser) setLiveUserSpeech(prev => (prev + text + ' ').trimStart())
+          },
+          onTurnComplete: () => {},   // not called in supervisor_stt mode
+          onUserSpeechFinal: handleUserSpeechFinal,
           onError: handleVoiceError,
         }
       : null
@@ -130,6 +193,15 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
       voiceStartRef.current = Date.now()
     }
   }, [gemini.state])
+
+  // ── Manual send (button) ──────────────────────────────────────────────────────
+  const handleManualSend = useCallback(() => {
+    const text = liveUserSpeech.trim()
+    if (!text || isHugoThinking) return
+    gemini.clearSttBuffer()      // prevent VAD from double-firing
+    setLiveUserSpeech('')
+    handleUserSpeechFinal(text)
+  }, [liveUserSpeech, isHugoThinking, gemini, handleUserSpeechFinal])
 
   // ── Mode toggle ───────────────────────────────────────────────────────────────
   function switchMode(mode: SupervisorMode) {
@@ -258,7 +330,8 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
   // ── Voice-mode start ──────────────────────────────────────────────────────────
   function handleStartVoice() {
     setVoiceErrorMsg('')
-    gemini.resumePlayback()   // MUST be sync in onClick — browser autoplay policy
+    setLiveUserSpeech('')
+    isSendingRef.current = false
     gemini.connect()
   }
 
@@ -266,20 +339,13 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
   async function handleConcluir() {
     setIsConcluindo(true)
     try {
-      // Flush any remaining voice transcript buffers
-      const finalUserTurn = pendingInputRef.current.trim()
-      const finalSupervisorTurn = pendingOutputRef.current.trim()
-      const allLines = [...voiceTranscriptLines]
-      if (finalUserTurn) allLines.push({ role: 'user', text: finalUserTurn })
-      if (finalSupervisorTurn) allLines.push({ role: 'supervisor', text: finalSupervisorTurn })
-
       const patchBody: Record<string, unknown> = { estado: 'concluida' }
 
-      if (supervisorMode === 'voice' && allLines.length > 0) {
-        // Disconnect voice session
+      if (supervisorMode === 'voice' && voiceTranscriptLines.length > 0) {
+        if (hugoAudioRef.current) hugoAudioRef.current.pause()
         gemini.disconnect()
 
-        patchBody.voice_transcript = allLines.map(l =>
+        patchBody.voice_transcript = voiceTranscriptLines.map(l =>
           l.role === 'user' ? `[Terapeuta]: ${l.text}` : `[Supervisor]: ${l.text}`
         )
         const durationMs = voiceStartRef.current ? Date.now() - voiceStartRef.current : 0
@@ -300,8 +366,6 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
       toast.error('Não foi possível guardar a sessão. Tenta daqui a pouco.')
     } finally { setIsConcluindo(false) }
   }
-
-  const isAvatarSpeaking = gemini.state === 'connected' && pendingOutputRef.current.length > 0
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -513,41 +577,83 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
           </>
         )}
 
-        {/* ── VOICE MODE ── */}
+        {/* ── VOICE MODE (hybrid: Gemini STT → Claude → ElevenLabs) ── */}
         {supervisorMode === 'voice' && (
           <>
-            {/* Transcript */}
+            {/* Conversation transcript */}
             <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-3">
+
+              {/* Empty state */}
               {voiceTranscriptLines.length === 0 && gemini.state === 'idle' && !concluida && (
                 <div className="h-full flex items-center justify-center min-h-48">
-                  <div className="text-center space-y-1 max-w-xs">
-                    <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>Sessão de supervisão em voz</p>
+                  <div className="text-center space-y-3 max-w-xs px-4">
+                    {/* Hugo avatar */}
+                    <div className="flex justify-center">
+                      <div
+                        className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold text-white"
+                        style={{ background: HUGO_COLOR }}
+                      >
+                        H
+                      </div>
+                    </div>
+                    <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>Supervisor — Modo Voz</p>
                     <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                      Apresenta o sonho e a tua análise inicial em voz. O Supervisor vai guiar-te com perguntas socráticas.
+                      Fala com o Supervisor diretamente. Ele irá guiar-te com perguntas socráticas através da voz de Hugo Martins.
                     </p>
                   </div>
                 </div>
               )}
 
+              {/* Transcript lines */}
               {voiceTranscriptLines.map((line, i) => (
-                <div key={i} className={`flex ${line.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div key={i} className={`flex items-start gap-2.5 ${line.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {line.role === 'supervisor' && (
+                    <div
+                      className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                      style={{ background: HUGO_COLOR }}
+                    >
+                      H
+                    </div>
+                  )}
                   {line.role === 'user' ? (
                     <div
-                      className="max-w-[80%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed"
+                      className="max-w-[78%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed"
                       style={{ background: 'oklch(0.965 0.008 85)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
                     >
                       {line.text}
                     </div>
                   ) : (
                     <div
-                      className="max-w-[85%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed"
-                      style={{ background: 'var(--card)', border: '1px solid var(--border)', borderLeft: `3px solid ${SUPERVISOR_COLOR}`, color: 'var(--foreground)' }}
+                      className="max-w-[78%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed"
+                      style={{ background: 'var(--card)', border: '1px solid var(--border)', borderLeft: `3px solid ${HUGO_COLOR}`, color: 'var(--foreground)' }}
                     >
                       {line.text}
                     </div>
                   )}
                 </div>
               ))}
+
+              {/* Hugo thinking indicator */}
+              {isHugoThinking && (
+                <div className="flex items-start gap-2.5 justify-start">
+                  <div
+                    className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: HUGO_COLOR }}
+                  >
+                    H
+                  </div>
+                  <div
+                    className="rounded-2xl rounded-tl-sm px-4 py-2.5"
+                    style={{ background: 'var(--card)', border: '1px solid var(--border)', borderLeft: `3px solid ${HUGO_COLOR}` }}
+                  >
+                    <span className="inline-flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: HUGO_COLOR, animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: HUGO_COLOR, animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: HUGO_COLOR, animationDelay: '300ms' }} />
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Voice error */}
               {voiceErrorMsg && gemini.state === 'error' && (
@@ -556,7 +662,7 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
                     style={{ background: 'var(--card)', borderColor: 'oklch(0.52 0.22 25 / 0.4)', color: 'oklch(0.52 0.22 25)' }}>
                     <p>{voiceErrorMsg}</p>
                     <button type="button" className="text-xs underline" style={{ color: 'var(--primary)' }}
-                      onClick={() => { setVoiceErrorMsg(''); gemini.resumePlayback(); gemini.connect() }}>
+                      onClick={() => { setVoiceErrorMsg(''); handleStartVoice() }}>
                       Tentar novamente
                     </button>
                   </div>
@@ -566,62 +672,105 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
               <div ref={bottomRef} />
             </div>
 
-            {/* Voice controls footer */}
+            {/* Live transcription bar + controls footer */}
             {concluida ? (
               <div className="px-4 py-3 text-sm text-center border-t" style={{ borderColor: 'var(--border)', color: 'var(--muted-foreground)', background: 'var(--card)' }}>
                 Esta sessão foi concluída. Inicia uma nova para continuar a praticar.
               </div>
             ) : (
-              <div className="p-4 border-t flex items-center justify-center gap-4" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
-                {gemini.state === 'idle' && (
-                  <button
-                    type="button"
-                    onClick={handleStartVoice}
-                    className="inline-flex items-center gap-2 rounded-full px-6 h-11 text-sm font-medium transition-colors"
-                    style={{ background: SUPERVISOR_COLOR, color: 'white' }}
-                  >
-                    <span className="text-base">🎤</span>
-                    Iniciar sessão de voz
-                  </button>
-                )}
+              <div className="border-t shrink-0" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
 
-                {gemini.state === 'connecting' && (
-                  <div className="flex items-center gap-3">
-                    <span className="inline-flex gap-1">
-                      {[0, 150, 300].map(d => (
-                        <span key={d} className="w-2 h-2 rounded-full animate-bounce" style={{ background: SUPERVISOR_COLOR, animationDelay: `${d}ms` }} />
-                      ))}
-                    </span>
-                    <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>A conectar ao Supervisor…</span>
+                {/* Live transcription preview */}
+                {liveUserSpeech && (gemini.state === 'connected' || gemini.state === 'reconnecting') && (
+                  <div className="px-4 pt-3 pb-1">
+                    <p className="text-xs italic leading-snug" style={{ color: 'var(--muted-foreground)' }}>
+                      &ldquo;{liveUserSpeech.trim()}&rdquo;
+                    </p>
                   </div>
                 )}
 
-                {(gemini.state === 'connected' || gemini.state === 'reconnecting') && (
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex items-center justify-center w-10 h-10">
-                      <span className="absolute inset-0 rounded-full animate-ping opacity-40" style={{ background: SUPERVISOR_COLOR }} />
-                      <span className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full text-base" style={{ background: SUPERVISOR_COLOR, color: 'white' }}>
-                        🎤
-                      </span>
-                    </div>
-                    <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                      {gemini.state === 'reconnecting'
-                        ? 'A reconectar…'
-                        : isAvatarSpeaking
-                        ? 'Supervisor está a falar…'
-                        : 'Sessão activa · a escutar'}
-                    </span>
-                  </div>
-                )}
+                {/* Controls */}
+                <div className="p-4 flex items-center justify-center gap-4">
 
-                {gemini.state === 'closed' && (
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Sessão de voz encerrada.</span>
-                    <button type="button" className="text-xs underline" style={{ color: 'var(--primary)' }} onClick={handleStartVoice}>
-                      Reiniciar
+                  {/* Idle: start button */}
+                  {gemini.state === 'idle' && (
+                    <button
+                      type="button"
+                      onClick={handleStartVoice}
+                      className="inline-flex items-center gap-2 rounded-full px-6 h-11 text-sm font-medium transition-colors"
+                      style={{ background: HUGO_COLOR, color: 'white' }}
+                    >
+                      <span className="text-base">🎤</span>
+                      Iniciar sessão de voz
                     </button>
-                  </div>
-                )}
+                  )}
+
+                  {/* Connecting */}
+                  {gemini.state === 'connecting' && (
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex gap-1">
+                        {[0, 150, 300].map(d => (
+                          <span key={d} className="w-2 h-2 rounded-full animate-bounce" style={{ background: HUGO_COLOR, animationDelay: `${d}ms` }} />
+                        ))}
+                      </span>
+                      <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>A ligar ao Supervisor…</span>
+                    </div>
+                  )}
+
+                  {/* Connected: mic active */}
+                  {(gemini.state === 'connected' || gemini.state === 'reconnecting') && (
+                    <div className="flex items-center gap-4">
+                      {/* Mic pulse */}
+                      <div className="relative flex items-center justify-center w-10 h-10">
+                        {!isHugoSpeaking && !isHugoThinking && (
+                          <span className="absolute inset-0 rounded-full animate-ping opacity-30" style={{ background: SUPERVISOR_COLOR }} />
+                        )}
+                        <span
+                          className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full text-base"
+                          style={{
+                            background: isHugoSpeaking ? HUGO_COLOR : isHugoThinking ? 'var(--muted)' : SUPERVISOR_COLOR,
+                            color: 'white',
+                            transition: 'background 0.3s',
+                          }}
+                        >
+                          {isHugoSpeaking ? '🔊' : isHugoThinking ? '⏳' : '🎤'}
+                        </span>
+                      </div>
+
+                      <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                        {gemini.state === 'reconnecting'
+                          ? 'A reconectar…'
+                          : isHugoSpeaking
+                          ? 'Supervisor a falar…'
+                          : isHugoThinking
+                          ? 'Supervisor a pensar…'
+                          : 'A escutar — fala agora'}
+                      </span>
+
+                      {/* Manual send button — fires when user wants to end their turn early */}
+                      {liveUserSpeech.trim() && !isHugoThinking && !isHugoSpeaking && (
+                        <button
+                          type="button"
+                          onClick={handleManualSend}
+                          className="text-xs px-3 h-7 rounded-full font-medium transition-colors"
+                          style={{ background: SUPERVISOR_COLOR, color: 'white' }}
+                        >
+                          Enviar
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Closed */}
+                  {gemini.state === 'closed' && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Sessão de voz encerrada.</span>
+                      <button type="button" className="text-xs underline" style={{ color: 'var(--primary)' }} onClick={handleStartVoice}>
+                        Reiniciar
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </>

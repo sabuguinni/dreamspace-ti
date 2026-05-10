@@ -81,6 +81,27 @@ function buildSetupMessage(modelName, systemPrompt, voiceName, resumptionHandle)
   return { setup }
 }
 
+/**
+ * STT-only setup for supervisor hybrid mode.
+ * Uses TEXT modality so Gemini transcribes audio but doesn't synthesise speech.
+ * inputAudioTranscription captures what the user says; model text output is ignored.
+ */
+function buildSetupMessageStt(modelName, resumptionHandle) {
+  const setup = {
+    model: modelName,
+    generationConfig: {
+      responseModalities: ['TEXT'],
+    },
+    systemInstruction: {
+      parts: [{ text: 'Transcreve o áudio recebido em texto. Não interpretes nem respondas ao conteúdo.' }],
+    },
+    inputAudioTranscription: {},
+    contextWindowCompression: { slidingWindow: {} },
+    sessionResumption: resumptionHandle ? { handle: resumptionHandle } : {},
+  }
+  return { setup }
+}
+
 function connectToGemini(socket, session) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || ''
   if (!apiKey) {
@@ -122,12 +143,9 @@ function connectToGemini(socket, session) {
 
   ws.on('open', () => {
     console.log(`[GeminiProxy] WS OPEN for socket ${socket.id}`)
-    const setupMsg = buildSetupMessage(
-      session.modelName,
-      session.systemPrompt,
-      session.voiceName,
-      session.resumptionHandle
-    )
+    const setupMsg = session.type === 'supervisor_stt'
+      ? buildSetupMessageStt(session.modelName, session.resumptionHandle)
+      : buildSetupMessage(session.modelName, session.systemPrompt, session.voiceName, session.resumptionHandle)
     ws.send(JSON.stringify(setupMsg))
   })
 
@@ -218,6 +236,7 @@ function registerGeminiProxy(io) {
 
       // Security: supervisor system prompt is ALWAYS server-side.
       // When type === 'supervisor', ignore any client-provided systemPrompt.
+      // When type === 'supervisor_stt', no system prompt needed (buildSetupMessageStt handles it).
       const systemPrompt = type === 'supervisor'
         ? SUPERVISOR_VOICE_PROMPT
         : (data.systemPrompt || '')
@@ -235,6 +254,7 @@ function registerGeminiProxy(io) {
       const session = {
         ws: null,
         sessionId,
+        type,             // 'avatar' | 'supervisor' | 'supervisor_stt'
         modelName,
         systemPrompt,
         voiceName,
