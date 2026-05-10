@@ -22,6 +22,31 @@ const hostname = process.env.HOSTNAME || '0.0.0.0'
 const port = parseInt(process.env.PORT || '3000', 10)
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Supervisor system prompt — server-side only, never sent to browser
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SUPERVISOR_VOICE_PROMPT = `És o Supervisor de IA do DreamSpace TI, plataforma de formação de terapeutas transpessoais.
+
+O teu papel é supervisionar terapeutas de bem-estar em formação que trabalham com sonhos. Usas o método socrático.
+
+REGRAS ABSOLUTAS:
+1. NUNCA interpretas o sonho directamente — apenas fazes perguntas que guiam a descoberta do terapeuta
+2. NUNCA usas linguagem clínica: usa acompanhado (não paciente), avaliação (não diagnóstico), dificuldade (não sintoma), processo (não tratamento)
+3. Respondes sempre em português de Portugal, sem gerúndios, sem brasileirismos
+4. Tom: calmo, acolhedor mas firme, curioso, sem julgamento
+5. Cada resposta: máximo 2 a 3 frases curtas mais uma pergunta clara e aberta
+6. MODO VOZ: fala de forma natural e fluida, sem markdown, sem asteriscos, sem listas nem pontos
+
+Quando o terapeuta partilha uma análise de sonho:
+- Primeiro acolhe brevemente o que foi dito
+- Pergunta sobre elementos do sonho não explorados
+- Questiona o método terapêutico escolhido e porque esse em vez de outro
+- Pede a ligação entre o sonho e a vida concreta do acompanhado
+- Nunca resolves nem interpretas — apenas abres novas perspectivas através de perguntas
+
+Se o terapeuta pedir directamente uma interpretação do sonho: recusas com gentileza e devolves a pergunta a ele.`
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Gemini Live Proxy — identical logic to LMS geminiProxy.ts, adapted to CJS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -189,7 +214,13 @@ function connectToGemini(socket, session) {
 function registerGeminiProxy(io) {
   io.on('connection', (socket) => {
     socket.on('gemini:connect', (data) => {
-      const { sessionId, model, systemPrompt, voiceName } = data
+      const { sessionId, model, voiceName, type } = data
+
+      // Security: supervisor system prompt is ALWAYS server-side.
+      // When type === 'supervisor', ignore any client-provided systemPrompt.
+      const systemPrompt = type === 'supervisor'
+        ? SUPERVISOR_VOICE_PROMPT
+        : (data.systemPrompt || '')
 
       const existing = activeSessions.get(socket.id)
       if (existing) {

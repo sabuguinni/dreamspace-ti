@@ -7,6 +7,9 @@ import { MarkdownContent } from './MarkdownContent'
 import { MetodoBadge } from './MetodoBadge'
 import { FlagBadge } from './FlagBadge'
 import { Button } from '@/components/ui/button'
+import { useGeminiLive } from '@/lib/hooks/useGeminiLive'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ChatMsg {
   id: string
@@ -15,6 +18,10 @@ interface ChatMsg {
   streaming?: boolean
 }
 
+type SupervisorMode = 'text' | 'voice'
+
+type VoiceTranscriptLine = { role: 'user' | 'supervisor'; text: string }
+
 interface Props {
   sessaoId: string
   sessaoInicial: SessaoSupervisor
@@ -22,10 +29,18 @@ interface Props {
   initialInput?: string
 }
 
+const MODE_KEY = 'supervisor_mode'
 const VOICE_KEY = 'supervisor_voice_enabled'
+
+const SUPERVISOR_COLOR = 'oklch(0.631 0.118 65)'  // warm amber — supervisor accent
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initialInput }: Props) {
   const [sessao, setSessao] = useState<SessaoSupervisor>(sessaoInicial)
+  const concluida = sessao.estado === 'concluida'
+
+  // ── Text-mode state ──────────────────────────────────────────────────────────
   const [msgs, setMsgs] = useState<ChatMsg[]>(
     mensagensIniciais
       .filter(m => m.papel !== 'system')
@@ -33,35 +48,108 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
   )
   const [input, setInput] = useState(initialInput ?? '')
   const [isStreaming, setIsStreaming] = useState(false)
+  const [voiceTtsEnabled, setVoiceTtsEnabled] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  // ── Voice-mode state ─────────────────────────────────────────────────────────
+  const [voiceTranscriptLines, setVoiceTranscriptLines] = useState<VoiceTranscriptLine[]>([])
+  const pendingOutputRef = useRef<string>('')
+  const pendingInputRef = useRef<string>('')
+  const voiceStartRef = useRef<number | null>(null)
+  const [voiceErrorMsg, setVoiceErrorMsg] = useState<string>('')
+
+  // ── Shared ───────────────────────────────────────────────────────────────────
+  const [supervisorMode, setSupervisorMode] = useState<SupervisorMode>('text')
   const [isConcluindo, setIsConcluindo] = useState(false)
   const [mostrarConcluir, setMostrarConcluir] = useState(false)
-  const [voiceEnabled, setVoiceEnabled] = useState(false)
-  const [isPlaying, setIsPlaying] = useState(false)
   const [balanceCents, setBalanceCents] = useState<number | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const concluida = sessao.estado === 'concluida'
 
+  // ── Init ─────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    setVoiceEnabled(localStorage.getItem(VOICE_KEY) === 'true')
-    fetch('/api/credits').then(r => r.json()).then(d => setBalanceCents(d.balanceCents ?? 0)).catch(() => {})
+    const storedMode = localStorage.getItem(MODE_KEY) as SupervisorMode | null
+    if (storedMode === 'voice' || storedMode === 'text') setSupervisorMode(storedMode)
+    setVoiceTtsEnabled(localStorage.getItem(VOICE_KEY) === 'true')
+    fetch('/api/credits')
+      .then(r => r.json())
+      .then(d => { setBalanceCents(d.balanceCents ?? 0); setIsAdmin(d.isAdmin ?? false) })
+      .catch(() => {})
   }, [])
 
-  // Auto-scroll sempre que as msgs mudam
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [msgs])
+  // Auto-scroll
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [voiceTranscriptLines])
 
-  function toggleVoice() {
-    const next = !voiceEnabled
-    setVoiceEnabled(next)
+  // ── Gemini Live callbacks ─────────────────────────────────────────────────────
+  const handleVoiceTranscription = useCallback((text: string, isUser: boolean) => {
+    if (isUser) pendingInputRef.current += text + ' '
+    else pendingOutputRef.current += text + ' '
+  }, [])
+
+  const handleVoiceTurnComplete = useCallback(() => {
+    const userTurn = pendingInputRef.current.trim()
+    const supervisorTurn = pendingOutputRef.current.trim()
+    setVoiceTranscriptLines(prev => {
+      const next = [...prev]
+      if (userTurn) next.push({ role: 'user', text: userTurn })
+      if (supervisorTurn) next.push({ role: 'supervisor', text: supervisorTurn })
+      return next
+    })
+    pendingInputRef.current = ''
+    pendingOutputRef.current = ''
+  }, [])
+
+  const handleVoiceError = useCallback((msg: string) => {
+    setVoiceErrorMsg(msg)
+    toast.error(msg)
+  }, [])
+
+  const gemini = useGeminiLive(
+    supervisorMode === 'voice' && !concluida
+      ? {
+          type: 'supervisor',
+          systemPrompt: '',        // server uses its own secure prompt
+          voiceName: 'Aoede',      // calm, feminine — ideal for socratic supervisor
+          sessionId: sessaoId,
+          onAudioChunk: () => {},
+          onTextResponse: () => {},
+          onTranscription: handleVoiceTranscription,
+          onTurnComplete: handleVoiceTurnComplete,
+          onError: handleVoiceError,
+        }
+      : null
+  )
+
+  // Track voice start time
+  useEffect(() => {
+    if (gemini.state === 'connected' && voiceStartRef.current === null) {
+      voiceStartRef.current = Date.now()
+    }
+  }, [gemini.state])
+
+  // ── Mode toggle ───────────────────────────────────────────────────────────────
+  function switchMode(mode: SupervisorMode) {
+    if (mode === supervisorMode) return
+    if (supervisorMode === 'voice' && gemini.state !== 'idle') {
+      gemini.disconnect()
+    }
+    setSupervisorMode(mode)
+    localStorage.setItem(MODE_KEY, mode)
+  }
+
+  // ── Text-mode TTS ─────────────────────────────────────────────────────────────
+  function toggleTts() {
+    const next = !voiceTtsEnabled
+    setVoiceTtsEnabled(next)
     localStorage.setItem(VOICE_KEY, String(next))
   }
 
   async function playTts(text: string) {
-    if (!voiceEnabled || isPlaying || !text) return
+    if (!voiceTtsEnabled || isPlaying || !text) return
     setIsPlaying(true)
     try {
       const res = await fetch('/api/tts', {
@@ -70,7 +158,7 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
         body: JSON.stringify({ text }),
       })
       if (res.status === 402) {
-        setVoiceEnabled(false)
+        setVoiceTtsEnabled(false)
         localStorage.setItem(VOICE_KEY, 'false')
         toast.warning('Saldo insuficiente para voz. Recarrega créditos na página Créditos.')
         return
@@ -88,16 +176,13 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
       }
       audio.onerror = () => setIsPlaying(false)
       await audio.play()
-    } catch {
-      setIsPlaying(false)
-    }
+    } catch { setIsPlaying(false) }
   }
 
+  // ── Text-mode send ────────────────────────────────────────────────────────────
   function resetTextarea() {
     setInput('')
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-    }
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -127,7 +212,6 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessao_id: sessaoId, mensagem: text }),
       })
-
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
 
       const reader = res.body.getReader()
@@ -141,7 +225,6 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() ?? ''
-
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
           const payload = line.slice(6)
@@ -151,47 +234,62 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
             if (parsed.error) throw new Error(parsed.error)
             if (parsed.text) {
               full += parsed.text
-              setMsgs(prev => prev.map(m =>
-                m.id === aid ? { ...m, conteudo: full } : m
-              ))
+              setMsgs(prev => prev.map(m => m.id === aid ? { ...m, conteudo: full } : m))
             }
           } catch { /* ignorar linhas malformadas */ }
         }
       }
 
-      // Finalizar mensagem
-      setMsgs(prev => prev.map(m =>
-        m.id === aid ? { ...m, streaming: false } : m
-      ))
-
-      // Voz opcional após resposta completa
+      setMsgs(prev => prev.map(m => m.id === aid ? { ...m, streaming: false } : m))
       if (full) await playTts(full)
 
-      // Actualizar sessão (flags)
       fetch(`/api/supervisor/sessoes/${sessaoId}`)
         .then(r => r.json())
         .then(({ sessao: s }: { sessao: SessaoSupervisor }) => { if (s) setSessao(s) })
         .catch(() => {})
-
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido'
       setMsgs(prev => prev.map(m =>
-        m.id === aid
-          ? { ...m, conteudo: `Não foi possível comunicar com o Supervisor. ${msg}`, streaming: false }
-          : m
+        m.id === aid ? { ...m, conteudo: `Não foi possível comunicar com o Supervisor. ${msg}`, streaming: false } : m
       ))
-    } finally {
-      setIsStreaming(false)
-    }
-  }, [input, isStreaming, concluida, sessaoId])
+    } finally { setIsStreaming(false) }
+  }, [input, isStreaming, concluida, sessaoId, voiceTtsEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Voice-mode start ──────────────────────────────────────────────────────────
+  function handleStartVoice() {
+    setVoiceErrorMsg('')
+    gemini.resumePlayback()   // MUST be sync in onClick — browser autoplay policy
+    gemini.connect()
+  }
+
+  // ── Conclude (both modes) ─────────────────────────────────────────────────────
   async function handleConcluir() {
     setIsConcluindo(true)
     try {
+      // Flush any remaining voice transcript buffers
+      const finalUserTurn = pendingInputRef.current.trim()
+      const finalSupervisorTurn = pendingOutputRef.current.trim()
+      const allLines = [...voiceTranscriptLines]
+      if (finalUserTurn) allLines.push({ role: 'user', text: finalUserTurn })
+      if (finalSupervisorTurn) allLines.push({ role: 'supervisor', text: finalSupervisorTurn })
+
+      const patchBody: Record<string, unknown> = { estado: 'concluida' }
+
+      if (supervisorMode === 'voice' && allLines.length > 0) {
+        // Disconnect voice session
+        gemini.disconnect()
+
+        patchBody.voice_transcript = allLines.map(l =>
+          l.role === 'user' ? `[Terapeuta]: ${l.text}` : `[Supervisor]: ${l.text}`
+        )
+        const durationMs = voiceStartRef.current ? Date.now() - voiceStartRef.current : 0
+        patchBody.voice_duration_minutes = Math.max(1, Math.ceil(durationMs / 60000))
+      }
+
       const res = await fetch(`/api/supervisor/sessoes/${sessaoId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado: 'concluida' }),
+        body: JSON.stringify(patchBody),
       })
       if (res.ok) {
         setSessao(prev => ({ ...prev, estado: 'concluida' }))
@@ -200,21 +298,22 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
       }
     } catch {
       toast.error('Não foi possível guardar a sessão. Tenta daqui a pouco.')
-    } finally {
-      setIsConcluindo(false)
-    }
+    } finally { setIsConcluindo(false) }
   }
+
+  const isAvatarSpeaking = gemini.state === 'connected' && pendingOutputRef.current.length > 0
+
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col lg:flex-row gap-0 overflow-hidden" style={{ minHeight: 0, flex: 1 }}>
 
-      {/* ── Painel esquerdo: contexto ───────────────────────── */}
+      {/* ── Left panel: context (unchanged) ────────────────────────────────── */}
       <aside
         className="lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r overflow-y-auto max-h-44 lg:max-h-none"
         style={{ borderColor: 'var(--border)', background: 'var(--card)' }}
       >
         <div className="p-5 space-y-5">
-
           {/* Sonho */}
           <div className="space-y-1.5">
             <p className="text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>
@@ -253,33 +352,22 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
             </div>
           )}
 
-          {/* Estado + botão concluir */}
+          {/* Concluir */}
           <div className="pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
             {concluida ? (
-              <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                Sessão concluída.
-              </p>
+              <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Sessão concluída.</p>
             ) : !mostrarConcluir ? (
-              <button
-                type="button"
-                onClick={() => setMostrarConcluir(true)}
-                className="text-xs underline"
-                style={{ color: 'var(--muted-foreground)' }}
-              >
+              <button type="button" onClick={() => setMostrarConcluir(true)} className="text-xs underline" style={{ color: 'var(--muted-foreground)' }}>
                 Concluir sessão
               </button>
             ) : (
               <div className="space-y-2">
-                <p className="text-xs" style={{ color: 'var(--foreground)' }}>
-                  Confirmar conclusão?
-                </p>
+                <p className="text-xs" style={{ color: 'var(--foreground)' }}>Confirmar conclusão?</p>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={handleConcluir} disabled={isConcluindo}>
                     {isConcluindo ? 'A concluir…' : 'Confirmar'}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setMostrarConcluir(false)}>
-                    Cancelar
-                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setMostrarConcluir(false)}>Cancelar</Button>
                 </div>
               </div>
             )}
@@ -287,142 +375,256 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
         </div>
       </aside>
 
-      {/* ── Área de chat ─────────────────────────────────────── */}
+      {/* ── Right panel: chat area ──────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-h-0">
 
-        {/* Barra voz + saldo */}
+        {/* Top bar: mode toggle + balance */}
         <div
-          className="flex items-center justify-end gap-3 px-4 py-2 border-b shrink-0"
+          className="flex items-center justify-between gap-3 px-4 py-2 border-b shrink-0"
           style={{ borderColor: 'var(--border)', background: 'var(--card)' }}
         >
-          {balanceCents !== null && (
-            <a
-              href="/creditos"
-              className="text-xs"
-              style={{ color: 'var(--muted-foreground)' }}
-              title="Ver créditos"
-            >
-              {(balanceCents / 100).toFixed(2)}€
-            </a>
-          )}
-          <button
-            type="button"
-            onClick={toggleVoice}
-            className="text-base leading-none"
-            style={{ color: voiceEnabled ? 'oklch(0.42 0.12 288)' : 'var(--muted-foreground)' }}
-            title={voiceEnabled ? 'Desactivar voz do Supervisor' : 'Activar voz do Supervisor'}
-          >
-            {isPlaying ? '🔊' : voiceEnabled ? '🔊' : '🔇'}
-          </button>
-        </div>
-
-        {/* Mensagens */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-          {msgs.length === 0 && (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center space-y-2 max-w-sm px-4">
-                <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                  Sessão iniciada
-                </p>
-                <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-                  Apresenta a tua análise inicial deste sonho. O Supervisor vai acompanhar-te pelos 4 níveis de reflexão socrática.
-                </p>
-              </div>
+          {/* Voz / Texto toggle */}
+          {!concluida && (
+            <div className="flex items-center gap-1 rounded-md border p-0.5" style={{ borderColor: 'var(--border)' }}>
+              <button
+                type="button"
+                onClick={() => switchMode('text')}
+                className="text-xs px-2.5 h-6 rounded transition-colors"
+                style={{
+                  background: supervisorMode === 'text' ? 'var(--primary)' : 'transparent',
+                  color: supervisorMode === 'text' ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
+                }}
+              >
+                💬 Texto
+              </button>
+              <button
+                type="button"
+                onClick={() => switchMode('voice')}
+                className="text-xs px-2.5 h-6 rounded transition-colors"
+                style={{
+                  background: supervisorMode === 'voice' ? 'var(--primary)' : 'transparent',
+                  color: supervisorMode === 'voice' ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
+                }}
+              >
+                🎤 Voz
+              </button>
             </div>
           )}
 
-          {msgs.map(m => (
-            <div key={m.id} className={`flex ${m.papel === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {m.papel === 'user' ? (
-                <div
-                  className="max-w-[80%] rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed"
-                  style={{ background: 'oklch(0.965 0.008 85)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
-                >
-                  {m.conteudo}
-                </div>
-              ) : (
-                <div
-                  className="max-w-[85%] rounded-2xl rounded-tl-sm px-4 py-3"
-                  style={{
-                    background: 'var(--card)',
-                    borderLeft: '3px solid oklch(0.631 0.118 65)',
-                    border: '1px solid var(--border)',
-                    borderLeftWidth: '3px',
-                  }}
-                >
-                  {m.conteudo ? (
-                    <MarkdownContent text={m.conteudo} />
-                  ) : (
-                    <span className="inline-flex gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: '0ms' }} />
-                      <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: '150ms' }} />
-                      <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: '300ms' }} />
-                    </span>
-                  )}
-                  {m.streaming && m.conteudo && (
-                    <span
-                      className="inline-block w-0.5 h-4 ml-0.5 animate-pulse align-middle"
-                      style={{ background: 'oklch(0.631 0.118 65)' }}
-                    />
-                  )}
+          <div className="flex items-center gap-3 ml-auto">
+            {/* Balance */}
+            {balanceCents !== null && (
+              <a href="/creditos" className="text-xs" style={{ color: 'var(--muted-foreground)' }} title="Ver créditos">
+                {(balanceCents / 100).toFixed(2)}€
+              </a>
+            )}
+            {/* TTS toggle (text mode only) */}
+            {supervisorMode === 'text' && !concluida && (
+              <button
+                type="button"
+                onClick={toggleTts}
+                className="text-base leading-none"
+                style={{ color: voiceTtsEnabled ? SUPERVISOR_COLOR : 'var(--muted-foreground)' }}
+                title={voiceTtsEnabled ? 'Desactivar voz do Supervisor' : 'Activar voz do Supervisor'}
+              >
+                {isPlaying ? '🔊' : voiceTtsEnabled ? '🔊' : '🔇'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ── TEXT MODE ── */}
+        {supervisorMode === 'text' && (
+          <>
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+              {msgs.length === 0 && (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center space-y-2 max-w-sm px-4">
+                    <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>Sessão iniciada</p>
+                    <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                      Apresenta a tua análise inicial deste sonho. O Supervisor vai acompanhar-te pelos 4 níveis de reflexão socrática.
+                    </p>
+                  </div>
                 </div>
               )}
-            </div>
-          ))}
-          <div ref={bottomRef} />
-        </div>
 
-        {/* Input */}
-        {concluida ? (
-          <div
-            className="px-4 py-3 text-sm text-center border-t"
-            style={{ borderColor: 'var(--border)', color: 'var(--muted-foreground)', background: 'var(--card)' }}
-          >
-            Esta sessão foi concluída. Inicia uma nova para continuar a praticar.
-          </div>
-        ) : (
-          <div
-            className="p-3 md:p-4 border-t"
-            style={{ borderColor: 'var(--border)', background: 'var(--card)' }}
-          >
-            <div className="flex gap-2 items-end">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSend()
-                  }
-                }}
-                disabled={isStreaming}
-                placeholder="A tua análise, reflexão ou pergunta… (Enter para enviar, Shift+Enter nova linha)"
-                rows={1}
-                className="flex-1 rounded-lg border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1"
-                style={{
-                  background: 'var(--background)',
-                  borderColor: 'var(--border)',
-                  color: 'var(--foreground)',
-                  overflow: 'hidden',
-                  minHeight: '2.5rem',
-                  maxHeight: '11.25rem',
-                  lineHeight: '1.5',
-                }}
-              />
-              <Button
-                onClick={handleSend}
-                disabled={isStreaming || !input.trim()}
-                size="sm"
-                className="shrink-0 h-10"
-              >
-                {isStreaming ? '…' : 'Enviar'}
-              </Button>
+              {msgs.map(m => (
+                <div key={m.id} className={`flex ${m.papel === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {m.papel === 'user' ? (
+                    <div
+                      className="max-w-[80%] rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed"
+                      style={{ background: 'oklch(0.965 0.008 85)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
+                    >
+                      {m.conteudo}
+                    </div>
+                  ) : (
+                    <div
+                      className="max-w-[85%] rounded-2xl rounded-tl-sm px-4 py-3"
+                      style={{ background: 'var(--card)', border: '1px solid var(--border)', borderLeft: `3px solid ${SUPERVISOR_COLOR}` }}
+                    >
+                      {m.conteudo ? (
+                        <MarkdownContent text={m.conteudo} />
+                      ) : (
+                        <span className="inline-flex gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: '0ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: '150ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: '300ms' }} />
+                        </span>
+                      )}
+                      {m.streaming && m.conteudo && (
+                        <span className="inline-block w-0.5 h-4 ml-0.5 animate-pulse align-middle" style={{ background: SUPERVISOR_COLOR }} />
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={bottomRef} />
             </div>
-            <p className="text-xs mt-1.5 ml-1" style={{ color: 'var(--muted-foreground)' }}>
-              Enter envia · Shift+Enter nova linha
-            </p>
-          </div>
+
+            {/* Input */}
+            {concluida ? (
+              <div className="px-4 py-3 text-sm text-center border-t" style={{ borderColor: 'var(--border)', color: 'var(--muted-foreground)', background: 'var(--card)' }}>
+                Esta sessão foi concluída. Inicia uma nova para continuar a praticar.
+              </div>
+            ) : (
+              <div className="p-3 md:p-4 border-t" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
+                <div className="flex gap-2 items-end">
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                    disabled={isStreaming}
+                    placeholder="A tua análise, reflexão ou pergunta… (Enter para enviar, Shift+Enter nova linha)"
+                    rows={1}
+                    className="flex-1 rounded-lg border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1"
+                    style={{ background: 'var(--background)', borderColor: 'var(--border)', color: 'var(--foreground)', overflow: 'hidden', minHeight: '2.5rem', maxHeight: '11.25rem', lineHeight: '1.5' }}
+                  />
+                  <Button onClick={handleSend} disabled={isStreaming || !input.trim()} size="sm" className="shrink-0 h-10">
+                    {isStreaming ? '…' : 'Enviar'}
+                  </Button>
+                </div>
+                <p className="text-xs mt-1.5 ml-1" style={{ color: 'var(--muted-foreground)' }}>
+                  Enter envia · Shift+Enter nova linha
+                </p>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── VOICE MODE ── */}
+        {supervisorMode === 'voice' && (
+          <>
+            {/* Transcript */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-3">
+              {voiceTranscriptLines.length === 0 && gemini.state === 'idle' && !concluida && (
+                <div className="h-full flex items-center justify-center min-h-48">
+                  <div className="text-center space-y-1 max-w-xs">
+                    <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>Sessão de supervisão em voz</p>
+                    <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                      Apresenta o sonho e a tua análise inicial em voz. O Supervisor vai guiar-te com perguntas socráticas.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {voiceTranscriptLines.map((line, i) => (
+                <div key={i} className={`flex ${line.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {line.role === 'user' ? (
+                    <div
+                      className="max-w-[80%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed"
+                      style={{ background: 'oklch(0.965 0.008 85)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
+                    >
+                      {line.text}
+                    </div>
+                  ) : (
+                    <div
+                      className="max-w-[85%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed"
+                      style={{ background: 'var(--card)', border: '1px solid var(--border)', borderLeft: `3px solid ${SUPERVISOR_COLOR}`, color: 'var(--foreground)' }}
+                    >
+                      {line.text}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Voice error */}
+              {voiceErrorMsg && gemini.state === 'error' && (
+                <div className="flex justify-center">
+                  <div className="rounded-lg border px-4 py-3 text-sm text-center space-y-2 max-w-sm"
+                    style={{ background: 'var(--card)', borderColor: 'oklch(0.52 0.22 25 / 0.4)', color: 'oklch(0.52 0.22 25)' }}>
+                    <p>{voiceErrorMsg}</p>
+                    <button type="button" className="text-xs underline" style={{ color: 'var(--primary)' }}
+                      onClick={() => { setVoiceErrorMsg(''); gemini.resumePlayback(); gemini.connect() }}>
+                      Tentar novamente
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Voice controls footer */}
+            {concluida ? (
+              <div className="px-4 py-3 text-sm text-center border-t" style={{ borderColor: 'var(--border)', color: 'var(--muted-foreground)', background: 'var(--card)' }}>
+                Esta sessão foi concluída. Inicia uma nova para continuar a praticar.
+              </div>
+            ) : (
+              <div className="p-4 border-t flex items-center justify-center gap-4" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
+                {gemini.state === 'idle' && (
+                  <button
+                    type="button"
+                    onClick={handleStartVoice}
+                    className="inline-flex items-center gap-2 rounded-full px-6 h-11 text-sm font-medium transition-colors"
+                    style={{ background: SUPERVISOR_COLOR, color: 'white' }}
+                  >
+                    <span className="text-base">🎤</span>
+                    Iniciar sessão de voz
+                  </button>
+                )}
+
+                {gemini.state === 'connecting' && (
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex gap-1">
+                      {[0, 150, 300].map(d => (
+                        <span key={d} className="w-2 h-2 rounded-full animate-bounce" style={{ background: SUPERVISOR_COLOR, animationDelay: `${d}ms` }} />
+                      ))}
+                    </span>
+                    <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>A conectar ao Supervisor…</span>
+                  </div>
+                )}
+
+                {(gemini.state === 'connected' || gemini.state === 'reconnecting') && (
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex items-center justify-center w-10 h-10">
+                      <span className="absolute inset-0 rounded-full animate-ping opacity-40" style={{ background: SUPERVISOR_COLOR }} />
+                      <span className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full text-base" style={{ background: SUPERVISOR_COLOR, color: 'white' }}>
+                        🎤
+                      </span>
+                    </div>
+                    <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                      {gemini.state === 'reconnecting'
+                        ? 'A reconectar…'
+                        : isAvatarSpeaking
+                        ? 'Supervisor está a falar…'
+                        : 'Sessão activa · a escutar'}
+                    </span>
+                  </div>
+                )}
+
+                {gemini.state === 'closed' && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Sessão de voz encerrada.</span>
+                    <button type="button" className="text-xs underline" style={{ color: 'var(--primary)' }} onClick={handleStartVoice}>
+                      Reiniciar
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

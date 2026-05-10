@@ -22,9 +22,13 @@ export type GeminiLiveState =
 
 interface UseGeminiLiveOptions {
   model?: string
+  /** For avatar sessions: the avatar's system prompt (sent to server, then to Gemini).
+   *  For supervisor sessions: leave empty — the server uses its own server-side prompt. */
   systemPrompt: string
   voiceName: string
   sessionId: string
+  /** 'supervisor' → server uses its own secure system prompt. 'avatar' (default) → uses systemPrompt. */
+  type?: 'supervisor' | 'avatar'
   onAudioChunk: (pcmBase64: string) => void
   onTextResponse: (text: string) => void
   onTranscription: (text: string, isUser: boolean) => void
@@ -221,8 +225,10 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
         socket.emit('gemini:connect', {
           sessionId: opts.sessionId,
           model,
-          systemPrompt: opts.systemPrompt,
+          // For supervisor: server uses its own secure prompt; we send empty string.
+          systemPrompt: opts.type === 'supervisor' ? '' : opts.systemPrompt,
           voiceName: opts.voiceName,
+          type: opts.type ?? 'avatar',
         })
       })
 
