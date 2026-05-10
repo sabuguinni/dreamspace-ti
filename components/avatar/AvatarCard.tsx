@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import type { Avatar } from '@/lib/types'
 
 const AVATAR_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -12,6 +13,7 @@ const AVATAR_COLORS: Record<string, { bg: string; fg: string }> = {
 
 export function AvatarCard({ avatar }: { avatar: Avatar }) {
   const color = AVATAR_COLORS[avatar.slug] ?? { bg: 'oklch(0.42 0.08 252)', fg: 'white' }
+  const dicebearSrc = `https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(avatar.nome)}`
 
   return (
     <div
@@ -20,11 +22,22 @@ export function AvatarCard({ avatar }: { avatar: Avatar }) {
     >
       {/* Avatar identity */}
       <div className="flex items-center gap-3">
-        <div
-          className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-semibold shrink-0"
-          style={{ background: color.bg, color: color.fg }}
-        >
-          {avatar.nome[0]}
+        <div className="relative w-12 h-12 shrink-0">
+          <Image
+            src={dicebearSrc}
+            alt={avatar.nome}
+            width={48}
+            height={48}
+            className="rounded-full"
+            unoptimized
+          />
+          {/* Fallback initial — behind the image */}
+          <div
+            className="absolute inset-0 rounded-full flex items-center justify-center text-lg font-semibold -z-10"
+            style={{ background: color.bg, color: color.fg }}
+          >
+            {avatar.nome[0]}
+          </div>
         </div>
         <div>
           <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>

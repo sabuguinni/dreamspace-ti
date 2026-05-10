@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import Image from 'next/image'
 import { toast } from 'sonner'
 import type { SessaoAvatar, Mensagem, AvatarReport } from '@/lib/types'
 import type { FicheiroSecreto } from '@/lib/types'
@@ -57,9 +58,29 @@ export function AvatarChat({
   const [report, setReport] = useState<AvatarReport | null>(null)
   const [isGerandoRelatorio, setIsGerandoRelatorio] = useState(false)
 
+  // TTS
+  const [voiceEnabled, setVoiceEnabled] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const concluida = sessao.estado === 'concluida'
+
+  const color = AVATAR_COLORS[avatarSlug] ?? { bg: 'oklch(0.42 0.08 252)', fg: 'white' }
+  const dicebearSrc = `https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(avatarNome)}`
+
+  // Load voice preference + admin status
+  useEffect(() => {
+    const saved = localStorage.getItem('avatar_voice_enabled')
+    if (saved === 'true') setVoiceEnabled(true)
+
+    fetch('/api/credits')
+      .then(r => r.json())
+      .then(d => { setIsAdmin(d.isAdmin ?? false) })
+      .catch(() => {})
+  }, [])
 
   // Load cached report for already-concluded sessions
   useEffect(() => {
@@ -70,11 +91,53 @@ export function AvatarChat({
     }
   }, [concluida]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const color = AVATAR_COLORS[avatarSlug] ?? { bg: 'oklch(0.42 0.08 252)', fg: 'white' }
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs])
+
+  function toggleVoice() {
+    const next = !voiceEnabled
+    setVoiceEnabled(next)
+    localStorage.setItem('avatar_voice_enabled', String(next))
+  }
+
+  async function playTts(text: string) {
+    if (!voiceEnabled || isPlaying) return
+    setIsPlaying(true)
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      if (res.status === 402) {
+        if (!isAdmin) {
+          setVoiceEnabled(false)
+          localStorage.setItem('avatar_voice_enabled', 'false')
+          toast.error('Saldo insuficiente para voz — recarrega créditos')
+        }
+        setIsPlaying(false)
+        return
+      }
+      if (!res.ok) { setIsPlaying(false); return }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      if (audioRef.current) {
+        audioRef.current.pause()
+        URL.revokeObjectURL(audioRef.current.src)
+      }
+      const audio = new Audio(url)
+      audioRef.current = audio
+      audio.onended = () => {
+        setIsPlaying(false)
+        URL.revokeObjectURL(url)
+      }
+      audio.onerror = () => setIsPlaying(false)
+      await audio.play()
+    } catch {
+      setIsPlaying(false)
+    }
+  }
 
   function resetTextarea() {
     setInput('')
@@ -139,6 +202,9 @@ export function AvatarChat({
       }
 
       setMsgs(prev => prev.map(m => m.id === aid ? { ...m, streaming: false } : m))
+
+      // Play TTS after streaming completes
+      if (full && voiceEnabled) await playTts(full)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido'
       setMsgs(prev => prev.map(m =>
@@ -149,7 +215,7 @@ export function AvatarChat({
     } finally {
       setIsStreaming(false)
     }
-  }, [input, isStreaming, concluida, sessaoId])
+  }, [input, isStreaming, concluida, sessaoId, voiceEnabled, isAdmin]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleConcluir() {
     setIsConcluindo(true)
@@ -209,11 +275,30 @@ export function AvatarChat({
           style={{ borderColor: 'var(--border)', background: 'var(--card)' }}
         >
           <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold shrink-0"
-              style={{ background: color.bg, color: color.fg }}
-            >
-              {avatarNome[0]}
+            {/* Avatar image with ping ring when speaking */}
+            <div className="relative w-9 h-9 shrink-0">
+              <Image
+                src={dicebearSrc}
+                alt={avatarNome}
+                width={36}
+                height={36}
+                className="rounded-full"
+                unoptimized
+              />
+              {/* Fallback initial */}
+              <div
+                className="absolute inset-0 rounded-full flex items-center justify-center text-sm font-semibold -z-10"
+                style={{ background: color.bg, color: color.fg }}
+              >
+                {avatarNome[0]}
+              </div>
+              {/* Speaking indicator */}
+              {isPlaying && (
+                <span
+                  className="absolute inset-0 rounded-full animate-ping"
+                  style={{ background: `${color.bg.replace(')', ' / 0.35)')}` }}
+                />
+              )}
             </div>
             <div>
               <p className="text-sm font-medium leading-tight" style={{ color: 'var(--foreground)' }}>
@@ -226,6 +311,19 @@ export function AvatarChat({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Voice toggle */}
+            {!concluida && (
+              <button
+                type="button"
+                onClick={toggleVoice}
+                className="text-base leading-none p-1 rounded transition-colors"
+                style={{ color: voiceEnabled ? color.bg : 'var(--muted-foreground)' }}
+                title={voiceEnabled ? 'Desactivar voz' : 'Activar voz'}
+              >
+                {voiceEnabled ? '🔊' : '🔇'}
+              </button>
+            )}
+
             {concluida ? (
               <>
                 <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Sessão concluída</span>
@@ -283,11 +381,21 @@ export function AvatarChat({
                 </div>
               ) : (
                 <div className="flex items-start gap-2.5 max-w-[85%]">
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 mt-1"
-                    style={{ background: color.bg, color: color.fg }}
-                  >
-                    {avatarNome[0]}
+                  <div className="relative w-7 h-7 shrink-0 mt-1">
+                    <Image
+                      src={dicebearSrc}
+                      alt={avatarNome}
+                      width={28}
+                      height={28}
+                      className="rounded-full"
+                      unoptimized
+                    />
+                    <div
+                      className="absolute inset-0 rounded-full flex items-center justify-center text-xs font-semibold -z-10"
+                      style={{ background: color.bg, color: color.fg }}
+                    >
+                      {avatarNome[0]}
+                    </div>
                   </div>
                   <div
                     className="rounded-2xl rounded-tl-sm px-4 py-3"

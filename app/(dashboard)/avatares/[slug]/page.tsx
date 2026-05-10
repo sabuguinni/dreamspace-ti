@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getAvatar } from '@/lib/content/avatares'
 import { useAvatarSessaoAtiva, useCriarAvatarSessao } from '@/lib/hooks/useAvatar'
@@ -58,6 +58,9 @@ function ChatSkeleton({ nome, slug, profissao, idade }: { nome: string; slug: st
 
 function AvatarSessaoInner() {
   const { slug } = useParams<{ slug: string }>()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const forceNew = searchParams.get('new') === '1'
   const avatar = getAvatar(slug)
 
   const { data: ativaData, isLoading: isLoadingAtiva } = useAvatarSessaoAtiva(slug)
@@ -67,9 +70,21 @@ function AvatarSessaoInner() {
   const [mensagens, setMensagens] = useState<Mensagem[]>([])
   const [created, setCreated] = useState(false)
 
-  // Once the active-session query resolves, either use it or create a new one
   useEffect(() => {
-    if (isLoadingAtiva || created) return
+    if (created) return
+
+    // forceNew: skip existing session, create fresh (POST will archive the old one)
+    if (forceNew) {
+      setCreated(true)
+      criarSessao(slug).then(data => {
+        setSessao(data.sessao)
+        setMensagens(data.mensagens)
+        router.replace(`/avatares/${slug}`)
+      }).catch(() => {})
+      return
+    }
+
+    if (isLoadingAtiva) return
 
     if (ativaData) {
       setSessao(ativaData.sessao)
@@ -78,7 +93,7 @@ function AvatarSessaoInner() {
       return
     }
 
-    // No active session — create one (only once)
+    // No active session — create one
     setCreated(true)
     criarSessao(slug).then(data => {
       setSessao(data.sessao)
@@ -87,7 +102,7 @@ function AvatarSessaoInner() {
       // leave sessao as null — error state rendered below
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoadingAtiva, ativaData])
+  }, [isLoadingAtiva, ativaData, forceNew, created])
 
   if (!avatar) {
     return (
@@ -100,7 +115,7 @@ function AvatarSessaoInner() {
     )
   }
 
-  const isLoading = isLoadingAtiva || isCriando || !sessao
+  const isLoading = (forceNew && !sessao) || (!forceNew && (isLoadingAtiva || isCriando || !sessao))
 
   if (isLoading) {
     return (
@@ -119,8 +134,8 @@ function AvatarSessaoInner() {
       style={{ height: 'calc(100dvh - 9rem)', borderColor: 'var(--border)' }}
     >
       <AvatarChat
-        sessaoId={sessao.id}
-        sessaoInicial={sessao}
+        sessaoId={sessao!.id}
+        sessaoInicial={sessao!}
         mensagensIniciais={mensagens}
         avatarNome={avatar.nome}
         avatarSlug={avatar.slug}
@@ -138,10 +153,19 @@ export default function AvatarSessaoPage() {
 
   return (
     <div className="flex flex-col" style={{ marginTop: '-0.5rem' }}>
-      <nav className="text-xs mb-3" style={{ color: 'var(--muted-foreground)' }}>
-        <Link href="/avatares" className="hover:underline">Avatares</Link>
-        <span className="mx-1.5">›</span>
-        <span>{avatar?.nome ?? slug}</span>
+      <nav className="text-xs mb-3 flex items-center justify-between" style={{ color: 'var(--muted-foreground)' }}>
+        <div>
+          <Link href="/avatares" className="hover:underline">Avatares</Link>
+          <span className="mx-1.5">›</span>
+          <span>{avatar?.nome ?? slug}</span>
+        </div>
+        <Link
+          href={`/avatares/${slug}?new=1`}
+          className="text-xs px-2.5 h-7 inline-flex items-center rounded border transition-colors hover:border-primary/40"
+          style={{ color: 'var(--muted-foreground)', borderColor: 'var(--border)' }}
+        >
+          + Nova sessão
+        </Link>
       </nav>
       <Suspense fallback={
         avatar ? (

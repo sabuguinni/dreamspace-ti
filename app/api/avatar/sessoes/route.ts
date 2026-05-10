@@ -56,6 +56,14 @@ export async function POST(req: Request) {
   const avatar = getAvatar(avatar_slug)
   if (!avatar) return NextResponse.json({ error: 'Avatar não encontrado' }, { status: 404 })
 
+  // Archive any existing em_curso sessions for this avatar (allows multiple sessions over time)
+  await supabase
+    .from('sessoes_avatar')
+    .update({ estado: 'arquivada' })
+    .eq('user_id', user.id)
+    .eq('avatar_slug', avatar_slug)
+    .eq('estado', 'em_curso')
+
   // Create session
   const { data: sessao, error: sessaoErr } = await supabase
     .from('sessoes_avatar')
