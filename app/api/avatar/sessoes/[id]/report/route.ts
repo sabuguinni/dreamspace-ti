@@ -30,7 +30,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ report: notas.avatar_report, score: notas.avatar_report_score ?? 0 })
   }
 
-  // Fetch messages
+  // Fetch text messages (may be empty in voice-mode sessions)
   const { data: mensagens } = await supabase
     .from('mensagens')
     .select('papel, conteudo, ordem')
@@ -38,7 +38,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     .order('ordem', { ascending: true })
 
   const msgs = (mensagens ?? []).filter(m => m.papel !== 'system')
-  if (msgs.length < 2) {
+
+  // Voice-mode sessions store transcript in notas_evolucao.voice_transcript
+  const voiceTranscript = Array.isArray(notas.voice_transcript)
+    ? (notas.voice_transcript as string[])
+    : null
+
+  const hasTextTranscript = msgs.length >= 2
+  const hasVoiceTranscript = voiceTranscript && voiceTranscript.length >= 2
+
+  if (!hasTextTranscript && !hasVoiceTranscript) {
     return NextResponse.json({ error: 'Sessão demasiado curta para gerar relatório.' }, { status: 400 })
   }
 
@@ -63,10 +72,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     // Non-blocking: proceed if LMS API unavailable
   }
 
-  // Build transcript for evaluation
-  const transcript = msgs
-    .map(m => `[${m.papel === 'user' ? 'Terapeuta' : avatar.nome}]: ${m.conteudo}`)
-    .join('\n\n')
+  // Build transcript for evaluation — prefer voice transcript if available
+  const transcript = hasVoiceTranscript
+    ? voiceTranscript!.join('\n\n')
+    : msgs
+        .map(m => `[${m.papel === 'user' ? 'Terapeuta' : avatar.nome}]: ${m.conteudo}`)
+        .join('\n\n')
 
   const systemEval = `És um supervisor de formação especializado em interpretação de sonhos e terapia transpessoal. Avalias sessões de treino de forma construtiva, detalhada e honesta. Respondes sempre em JSON válido, sem blocos de código markdown.`
 
@@ -156,6 +167,7 @@ Responde APENAS com o JSON, sem texto adicional.`
   }
 
   // Debit credits (non-blocking, skip for admin)
+  // Report generation always uses claude_message (1 unit per 10 msg turns, min 1)
   if (lmsUserId && !isAdmin) {
     const units = Math.max(1, Math.ceil(msgs.length / 10))
     debit(lmsUserId, 'claude_message', units, `Relatório sessão avatar ${avatar.nome} (${id.slice(0, 8)})`).catch(err => {
