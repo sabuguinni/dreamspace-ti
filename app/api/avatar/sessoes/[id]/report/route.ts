@@ -125,7 +125,7 @@ Responde APENAS com o JSON, sem texto adicional.`
   let reportRaw: string
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 2048,
       system: systemEval,
       messages: [{ role: 'user', content: userEval }],
