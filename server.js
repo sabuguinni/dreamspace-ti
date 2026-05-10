@@ -84,23 +84,29 @@ function buildSetupMessage(modelName, systemPrompt, voiceName, resumptionHandle)
 /**
  * STT-only setup for supervisor hybrid mode.
  *
- * IMPORTANT: gemini-2.5-flash-native-audio-* models require responseModalities:['AUDIO']
- * and cannot be used for text-only output. We MUST use gemini-2.0-flash-live-001 here —
- * it is the only Gemini Live model that accepts audio input and returns TEXT modality.
- * Using the native-audio model with TEXT modality causes code=1007 ("Cannot extract voices
- * from a non-audio request") and a reconnect loop.
+ * CONSTRAINT: this API key only has native-audio models available for bidiGenerateContent.
+ * All native-audio models REQUIRE responseModalities:['AUDIO'] — TEXT modality causes 1007.
  *
- * inputAudioTranscription captures what the user says; model text output is ignored
- * (Claude handles the actual response via /api/supervisor/voice-turn).
+ * Solution: use AUDIO modality (required) but give Gemini a 1-word system prompt so its
+ * audio response is minimal (~0.5s). The audio is filtered server-side and never sent to
+ * the browser. inputAudioTranscription fires regardless of output modality, giving us the
+ * user's speech transcript. turnComplete fires after Gemini's brief response, triggering
+ * onUserSpeechFinal → Claude → ElevenLabs.
  */
 function buildSetupMessageStt(resumptionHandle) {
   const setup = {
-    model: 'models/gemini-2.0-flash-live-001',   // MUST NOT use native-audio model
+    model: 'models/gemini-2.5-flash-native-audio-latest',
     generationConfig: {
-      responseModalities: ['TEXT'],
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: 'Puck' },
+        },
+      },
     },
+    // Force single-word responses so turnComplete fires quickly (~0.5s after user stops)
     systemInstruction: {
-      parts: [{ text: 'Transcreve o áudio recebido em texto. Não interpretes nem respondas ao conteúdo.' }],
+      parts: [{ text: 'Responde sempre com apenas "Hmm." independentemente do que for dito.' }],
     },
     inputAudioTranscription: {},
     contextWindowCompression: { slidingWindow: {} },
@@ -183,7 +189,17 @@ function connectToGemini(socket, session) {
       }
 
       if (msg.serverContent) {
-        socket.emit('gemini:serverContent', msg.serverContent)
+        if (session.type === 'supervisor_stt') {
+          // STT mode: filter out audio chunks — only forward transcription and turn events.
+          // The model's audio response is a throwaway "Hmm." that we never play.
+          const filtered = {}
+          if (msg.serverContent.inputTranscription) filtered.inputTranscription = msg.serverContent.inputTranscription
+          if (msg.serverContent.turnComplete)        filtered.turnComplete = msg.serverContent.turnComplete
+          if (msg.serverContent.interrupted)         filtered.interrupted = msg.serverContent.interrupted
+          if (Object.keys(filtered).length > 0) socket.emit('gemini:serverContent', filtered)
+        } else {
+          socket.emit('gemini:serverContent', msg.serverContent)
+        }
         return
       }
 
@@ -214,12 +230,12 @@ function connectToGemini(socket, session) {
       return
     }
 
-    // code=1007 = Gemini configuration/policy error (e.g. wrong modality for model).
+    // code=1007/1008 with "not found" or "not supported" = Gemini configuration error.
     // Retrying the same broken setup would just loop forever — fail fast instead.
-    if (code === 1007) {
-      console.error(`[GeminiProxy] Fatal config error for socket ${socket.id} (1007): ${reasonStr}`)
+    if (code === 1007 || (code === 1008 && (reasonStr.includes('not found') || reasonStr.includes('not supported') || reasonStr.includes('Cannot extract')))) {
+      console.error(`[GeminiProxy] Fatal config error for socket ${socket.id} (${code}): ${reasonStr}`)
       activeSessions.delete(socket.id)
-      socket.emit('gemini:error', { message: `Erro de configuração Gemini: ${reasonStr}` })
+      socket.emit('gemini:error', { message: `Erro de configuração Gemini (${code}): ${reasonStr}` })
       return
     }
 
