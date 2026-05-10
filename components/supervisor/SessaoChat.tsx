@@ -22,6 +22,8 @@ interface Props {
   initialInput?: string
 }
 
+const VOICE_KEY = 'supervisor_voice_enabled'
+
 export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initialInput }: Props) {
   const [sessao, setSessao] = useState<SessaoSupervisor>(sessaoInicial)
   const [msgs, setMsgs] = useState<ChatMsg[]>(
@@ -33,15 +35,63 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
   const [isStreaming, setIsStreaming] = useState(false)
   const [isConcluindo, setIsConcluindo] = useState(false)
   const [mostrarConcluir, setMostrarConcluir] = useState(false)
+  const [voiceEnabled, setVoiceEnabled] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [balanceCents, setBalanceCents] = useState<number | null>(null)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   const concluida = sessao.estado === 'concluida'
+
+  useEffect(() => {
+    setVoiceEnabled(localStorage.getItem(VOICE_KEY) === 'true')
+    fetch('/api/credits').then(r => r.json()).then(d => setBalanceCents(d.balanceCents ?? 0)).catch(() => {})
+  }, [])
 
   // Auto-scroll sempre que as msgs mudam
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs])
+
+  function toggleVoice() {
+    const next = !voiceEnabled
+    setVoiceEnabled(next)
+    localStorage.setItem(VOICE_KEY, String(next))
+  }
+
+  async function playTts(text: string) {
+    if (!voiceEnabled || isPlaying || !text) return
+    setIsPlaying(true)
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      if (res.status === 402) {
+        setVoiceEnabled(false)
+        localStorage.setItem(VOICE_KEY, 'false')
+        toast.warning('Saldo insuficiente para voz. Recarrega créditos na página Créditos.')
+        return
+      }
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      if (audioRef.current) { audioRef.current.pause(); URL.revokeObjectURL(audioRef.current.src) }
+      const audio = new Audio(url)
+      audioRef.current = audio
+      audio.onended = () => {
+        setIsPlaying(false)
+        URL.revokeObjectURL(url)
+        fetch('/api/credits').then(r => r.json()).then(d => setBalanceCents(d.balanceCents ?? 0)).catch(() => {})
+      }
+      audio.onerror = () => setIsPlaying(false)
+      await audio.play()
+    } catch {
+      setIsPlaying(false)
+    }
+  }
 
   function resetTextarea() {
     setInput('')
@@ -113,6 +163,9 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
       setMsgs(prev => prev.map(m =>
         m.id === aid ? { ...m, streaming: false } : m
       ))
+
+      // Voz opcional após resposta completa
+      if (full) await playTts(full)
 
       // Actualizar sessão (flags)
       fetch(`/api/supervisor/sessoes/${sessaoId}`)
@@ -236,6 +289,32 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
 
       {/* ── Área de chat ─────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-h-0">
+
+        {/* Barra voz + saldo */}
+        <div
+          className="flex items-center justify-end gap-3 px-4 py-2 border-b shrink-0"
+          style={{ borderColor: 'var(--border)', background: 'var(--card)' }}
+        >
+          {balanceCents !== null && (
+            <a
+              href="/creditos"
+              className="text-xs"
+              style={{ color: 'var(--muted-foreground)' }}
+              title="Ver créditos"
+            >
+              {(balanceCents / 100).toFixed(2)}€
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={toggleVoice}
+            className="text-base leading-none"
+            style={{ color: voiceEnabled ? 'oklch(0.42 0.12 288)' : 'var(--muted-foreground)' }}
+            title={voiceEnabled ? 'Desactivar voz do Supervisor' : 'Activar voz do Supervisor'}
+          >
+            {isPlaying ? '🔊' : voiceEnabled ? '🔊' : '🔇'}
+          </button>
+        </div>
 
         {/* Mensagens */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">

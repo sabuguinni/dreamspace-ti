@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/shared/Sidebar'
 import { Header } from '@/components/shared/Header'
+import { HugoFloatingButton } from '@/components/HugoFloatingButton'
 import type { Profile } from '@/lib/types'
 
 export default async function DashboardLayout({
@@ -38,6 +39,9 @@ export default async function DashboardLayout({
           {children}
         </main>
       </div>
+
+      {/* Hugo — guia flutuante */}
+      <HugoFloatingButton />
     </div>
   )
 }
