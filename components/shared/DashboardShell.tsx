@@ -35,10 +35,13 @@ export function DashboardShell({ profile, children }: DashboardShellProps) {
   if (inIframe) {
     return (
       <div
-        className="w-full min-h-screen"
+        className="w-full min-h-screen overflow-x-hidden"
         style={{ background: 'var(--background)' }}
       >
-        <main className="w-full h-full">
+        <main
+          className="w-full min-h-screen overflow-y-auto p-4"
+          style={{ maxWidth: 'none', margin: 0 }}
+        >
           {children}
         </main>
       </div>
