@@ -1,8 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Sidebar } from '@/components/shared/Sidebar'
-import { Header } from '@/components/shared/Header'
-import { HugoFloatingButton } from '@/components/HugoFloatingButton'
+import { DashboardShell } from '@/components/shared/DashboardShell'
 import type { Profile } from '@/lib/types'
 
 export default async function DashboardLayout({
@@ -28,20 +26,8 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen" style={{ background: 'var(--background)' }}>
-      {/* Sidebar desktop */}
-      <Sidebar />
-
-      {/* Área principal */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <Header profile={profile as Profile} />
-        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
-          {children}
-        </main>
-      </div>
-
-      {/* Hugo — guia flutuante */}
-      <HugoFloatingButton />
-    </div>
+    <DashboardShell profile={profile as Profile}>
+      {children}
+    </DashboardShell>
   )
 }
