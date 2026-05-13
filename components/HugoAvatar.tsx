@@ -120,6 +120,56 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
     ])
     setIsLoading(true)
 
+    // ── Voice mode: 1 round-trip (non-streaming Claude + ElevenLabs inline) ─
+    if (voiceEnabled) {
+      try {
+        const res = await fetch('/api/hugo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, history, voice: true }),
+        })
+        if (res.status === 402) {
+          if (!isAdmin) {
+            setInsufficientVoice(true)
+            setVoiceEnabled(false)
+            localStorage.setItem('hugo_voice_enabled', 'false')
+          }
+          setMsgs(prev => prev.map(m =>
+            m.id === aid ? { ...m, content: 'Saldo insuficiente para usar voz.', streaming: false } : m
+          ))
+          return
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+        const { text: replyText, audio } = await res.json() as { text: string; audio: string }
+        setMsgs(prev => prev.map(m => m.id === aid ? { ...m, content: replyText, streaming: false } : m))
+
+        // Play base64 audio inline — no second round-trip
+        setIsPlaying(true)
+        if (audioRef.current) audioRef.current.pause()
+        const audioEl = new Audio(`data:audio/mpeg;base64,${audio}`)
+        audioRef.current = audioEl
+        audioEl.onended = () => {
+          setIsPlaying(false)
+          fetch('/api/credits').then(r => r.json()).then(d => {
+            setBalanceCents(d.balanceCents ?? 0)
+            setIsAdmin(d.isAdmin ?? false)
+          }).catch(() => {})
+        }
+        audioEl.onerror = () => setIsPlaying(false)
+        await audioEl.play().catch(() => setIsPlaying(false))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+        setMsgs(prev => prev.map(m =>
+          m.id === aid ? { ...m, content: `Não consegui responder. ${msg}`, streaming: false } : m
+        ))
+      } finally {
+        setIsLoading(false)
+      }
+      return
+    }
+
+    // ── Text mode: SSE stream ─────────────────────────────────────────────────
     try {
       const res = await fetch('/api/hugo', {
         method: 'POST',
@@ -155,7 +205,6 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
       }
 
       setMsgs(prev => prev.map(m => m.id === aid ? { ...m, streaming: false } : m))
-      if (full && voiceEnabled) await playTts(full)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido'
       setMsgs(prev => prev.map(m =>
