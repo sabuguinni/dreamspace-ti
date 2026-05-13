@@ -3,9 +3,10 @@
 /**
  * DashboardShell — wrapper client-side do layout principal
  *
- * Detecta se a app está embebida num iframe (modo LMS) e adapta o layout:
- * - Em iframe: sem sidebar, sem header, sem botão Hugo — conteúdo 100% largura
- * - Normal: layout completo com sidebar, header e botão Hugo
+ * Layout idêntico em ambos os modos (normal e iframe).
+ * Única diferença em iframe: Header omitido para não duplicar com a barra
+ * navy "DreamSpace TI + Fechar" que o LMS já injeta por cima do iframe.
+ * Sidebar e HugoFloatingButton mantêm-se visíveis em qualquer modo.
  */
 
 import { useState, useEffect } from 'react'
@@ -31,38 +32,21 @@ export function DashboardShell({ profile, children }: DashboardShellProps) {
     }
   }, [])
 
-  // ── Modo iframe (embebido no LMS) ─────────────────────────────────
-  if (inIframe) {
-    return (
-      <div
-        className="w-full min-h-screen overflow-x-hidden"
-        style={{ background: 'var(--background)' }}
-      >
-        <main
-          className="w-full min-h-screen overflow-y-auto p-4"
-          style={{ maxWidth: 'none', margin: 0 }}
-        >
-          {children}
-        </main>
-      </div>
-    )
-  }
-
-  // ── Layout normal (acesso directo) ────────────────────────────────
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--background)' }}>
-      {/* Sidebar desktop */}
+      {/* Sidebar desktop — visível em ambos os modos */}
       <Sidebar />
 
       {/* Área principal */}
       <div className="flex-1 flex flex-col min-w-0">
-        <Header profile={profile} />
+        {/* Header omitido em iframe: a barra navy do LMS já mostra "DreamSpace TI + Fechar" */}
+        {!inIframe && <Header profile={profile} />}
         <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
           {children}
         </main>
       </div>
 
-      {/* Hugo — guia flutuante */}
+      {/* Hugo — guia flutuante, visível em ambos os modos */}
       <HugoFloatingButton />
     </div>
   )
