@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { getAvatar } from '@/lib/content/avatares'
 import { enforceVocabulary } from '@/lib/anthropic/vocabulary-filter'
+import { lookupUser, debit } from '@/lib/aiCreditsClient'
 import { z } from 'zod'
 
 const StreamSchema = z.object({
@@ -42,6 +43,8 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
 
   const { sessao_id, mensagem } = parsed.data
+
+  const lmsUser = await lookupUser(user.email!).catch(() => null)
 
   const { data: sessao } = await supabase
     .from('sessoes_avatar')
@@ -121,6 +124,13 @@ export async function POST(req: Request) {
           metadata: { vocab_substituicoes: vocabLog.length > 0 ? vocabLog : undefined },
           ordem: ordemAssistente,
         })
+
+        // Debit claude_message (non-blocking, admin bypass)
+        if (lmsUser && !lmsUser.isAdmin) {
+          debit(lmsUser.userId, 'claude_message', 1, `Avatar texto ${sessao.avatar_slug}`).catch(err =>
+            console.warn('[avatar/text] debit failed:', err.message)
+          )
+        }
       } catch (err) {
         console.error('[Avatar stream error]', err)
         const msg = err instanceof Error ? err.message : 'Erro desconhecido'
