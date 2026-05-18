@@ -14,12 +14,10 @@ export function HugoFloatingButton() {
   const [open, setOpen] = useState(false)
   const [onboardingDone, setOnboardingDone] = useState(true)
 
-  // Hide on supervisor pages
   const isHidden = pathname?.startsWith('/supervisor')
-  if (isHidden) return null
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
+    if (isHidden) return  // supervisor pages don't show Hugo — skip side-effects
     const done = localStorage.getItem(ONBOARDING_KEY) === 'true'
     setOnboardingDone(done)
     const wasOpen = localStorage.getItem(OPEN_KEY) === 'true'
@@ -30,6 +28,9 @@ export function HugoFloatingButton() {
       return () => clearTimeout(t)
     }
   }, [])
+
+  // Return null AFTER all hooks — satisfies Rules of Hooks (hook order is always consistent)
+  if (isHidden) return null
 
   function handleOpen() {
     setOpen(true)

@@ -53,6 +53,17 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs])
 
+  // Cleanup audio on unmount — prevent playback leak and state updates on unmounted component
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.src = ''
+        audioRef.current = null
+      }
+    }
+  }, [])
+
   function toggleVoice() {
     const next = !voiceEnabled
     setVoiceEnabled(next)
