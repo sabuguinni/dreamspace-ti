@@ -39,7 +39,7 @@ export const MODULOS_CONFIG: Record<string, ConfigModulo> = {
     subtitulo: 'O sonho como via régia ao inconsciente',
     duracao: '3 horas',
     numCasos: 4,
-    disponivel: false,
+    disponivel: true,
     anterior: 'modulo-1',
     seguinte: 'modulo-3',
     secoes: [
@@ -80,7 +80,7 @@ export const MODULOS_CONFIG: Record<string, ConfigModulo> = {
     subtitulo: 'Psicologia Arquetípica e o sonho como imagem viva',
     duracao: '3–4 horas',
     numCasos: 4,
-    disponivel: false,
+    disponivel: true,
     anterior: 'modulo-3',
     seguinte: 'modulo-5',
     secoes: [
@@ -100,7 +100,7 @@ export const MODULOS_CONFIG: Record<string, ConfigModulo> = {
     subtitulo: 'Delaney, Gendlin, Bosnak, Perls, Hill, Ullman e Taylor',
     duracao: '4–5 horas',
     numCasos: 8,
-    disponivel: false,
+    disponivel: true,
     anterior: 'modulo-4',
     seguinte: 'modulo-6',
     secoes: [
@@ -122,7 +122,7 @@ export const MODULOS_CONFIG: Record<string, ConfigModulo> = {
     subtitulo: 'Neurociência, técnicas e aplicações terapêuticas',
     duracao: '3–4 horas',
     numCasos: 2,
-    disponivel: false,
+    disponivel: true,
     anterior: 'modulo-5',
     seguinte: 'modulo-7',
     secoes: [
@@ -141,7 +141,7 @@ export const MODULOS_CONFIG: Record<string, ConfigModulo> = {
     subtitulo: 'Sonhos no xamanismo, budismo, islamismo, judaísmo e tradições indígenas',
     duracao: '3 horas',
     numCasos: 3,
-    disponivel: false,
+    disponivel: true,
     anterior: 'modulo-6',
     seguinte: 'modulo-8',
     secoes: [
@@ -161,7 +161,7 @@ export const MODULOS_CONFIG: Record<string, ConfigModulo> = {
     subtitulo: 'Como usar sonhos no acompanhamento de bem-estar',
     duracao: '3–4 horas',
     numCasos: 5,
-    disponivel: false,
+    disponivel: true,
     anterior: 'modulo-7',
     seguinte: 'modulo-9',
     secoes: [
@@ -181,7 +181,7 @@ export const MODULOS_CONFIG: Record<string, ConfigModulo> = {
     subtitulo: 'Construir a tua abordagem própria',
     duracao: '4–5 horas',
     numCasos: 4,
-    disponivel: false,
+    disponivel: true,
     anterior: 'modulo-8',
     secoes: [
       { id: 'introdução', titulo: 'Introdução' },
@@ -196,12 +196,12 @@ export const MODULOS_CONFIG: Record<string, ConfigModulo> = {
 
 export const TODOS_MODULOS = [
   { slug: 'modulo-1', numero: 'I',    titulo: 'Neurociência do Sonho',                             subtitulo: 'Como o cérebro produz e usa os sonhos',                                    duracao: '3–4 h', casos: 3, disponivel: true  },
-  { slug: 'modulo-2', numero: 'II',   titulo: 'A Via Régia — Freud e a Psicanálise do Sonho',      subtitulo: 'O sonho como via régia ao inconsciente',                                   duracao: '3 h',   casos: 4, disponivel: false },
+  { slug: 'modulo-2', numero: 'II',   titulo: 'A Via Régia — Freud e a Psicanálise do Sonho',      subtitulo: 'O sonho como via régia ao inconsciente',                                   duracao: '3 h',   casos: 4, disponivel: true  },
   { slug: 'modulo-3', numero: 'III',  titulo: 'A Alma e o Mito — Carl Jung',                       subtitulo: 'Arquétipos, Sombra e individuação',                                        duracao: '4–5 h', casos: 6, disponivel: true  },
-  { slug: 'modulo-4', numero: 'IV',   titulo: 'Ficar com a Imagem — James Hillman',                subtitulo: 'Psicologia Arquetípica e o sonho como imagem viva',                        duracao: '3–4 h', casos: 4, disponivel: false },
-  { slug: 'modulo-5', numero: 'V',    titulo: 'A Caixa de Ferramentas — Métodos Práticos',         subtitulo: 'Delaney, Gendlin, Bosnak, Perls, Hill, Ullman e Taylor',                  duracao: '4–5 h', casos: 8, disponivel: false },
-  { slug: 'modulo-6', numero: 'VI',   titulo: 'O Despertar na Noite — Sonhos Lúcidos',             subtitulo: 'Neurociência, técnicas e aplicações terapêuticas',                         duracao: '3–4 h', casos: 2, disponivel: false },
-  { slug: 'modulo-7', numero: 'VII',  titulo: 'O Sagrado e as Tradições Globais',                  subtitulo: 'Sonhos no xamanismo, budismo, islamismo, judaísmo e tradições indígenas',  duracao: '3 h',   casos: 3, disponivel: false },
-  { slug: 'modulo-8', numero: 'VIII', titulo: 'A Integração na Sessão — Aplicação Terapêutica',    subtitulo: 'Como usar sonhos no acompanhamento de bem-estar',                          duracao: '3–4 h', casos: 5, disponivel: false },
-  { slug: 'modulo-9', numero: 'IX',   titulo: 'Síntese, Identidade Profissional e Projecto Final', subtitulo: 'Construir a tua abordagem própria',                                        duracao: '4–5 h', casos: 4, disponivel: false },
+  { slug: 'modulo-4', numero: 'IV',   titulo: 'Ficar com a Imagem — James Hillman',                subtitulo: 'Psicologia Arquetípica e o sonho como imagem viva',                        duracao: '3–4 h', casos: 4, disponivel: true  },
+  { slug: 'modulo-5', numero: 'V',    titulo: 'A Caixa de Ferramentas — Métodos Práticos',         subtitulo: 'Delaney, Gendlin, Bosnak, Perls, Hill, Ullman e Taylor',                  duracao: '4–5 h', casos: 8, disponivel: true  },
+  { slug: 'modulo-6', numero: 'VI',   titulo: 'O Despertar na Noite — Sonhos Lúcidos',             subtitulo: 'Neurociência, técnicas e aplicações terapêuticas',                         duracao: '3–4 h', casos: 2, disponivel: true  },
+  { slug: 'modulo-7', numero: 'VII',  titulo: 'O Sagrado e as Tradições Globais',                  subtitulo: 'Sonhos no xamanismo, budismo, islamismo, judaísmo e tradições indígenas',  duracao: '3 h',   casos: 3, disponivel: true  },
+  { slug: 'modulo-8', numero: 'VIII', titulo: 'A Integração na Sessão — Aplicação Terapêutica',    subtitulo: 'Como usar sonhos no acompanhamento de bem-estar',                          duracao: '3–4 h', casos: 5, disponivel: true  },
+  { slug: 'modulo-9', numero: 'IX',   titulo: 'Síntese, Identidade Profissional e Projecto Final', subtitulo: 'Construir a tua abordagem própria',                                        duracao: '4–5 h', casos: 4, disponivel: true  },
 ]
