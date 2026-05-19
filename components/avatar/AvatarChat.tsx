@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { toast } from 'sonner'
 import type { SessaoAvatar, AvatarReport } from '@/lib/types'
@@ -58,8 +59,11 @@ export function AvatarChat({
   ficheiro,
 }: Props) {
   const [sessao, setSessao] = useState<SessaoAvatar>(sessaoInicial)
+  const router = useRouter()
   const [isConcluindo, setIsConcluindo] = useState(false)
   const [mostrarConfirmConcluir, setMostrarConfirmConcluir] = useState(false)
+  const [mostrarConfirmApagar, setMostrarConfirmApagar] = useState(false)
+  const [isApagando, setIsApagando] = useState(false)
   const [mostrarFicheiro, setMostrarFicheiro] = useState(false)
   const [report, setReport] = useState<AvatarReport | null>(null)
   const [isGerandoRelatorio, setIsGerandoRelatorio] = useState(false)
@@ -323,6 +327,26 @@ export function AvatarChat({
     }
   }
 
+  async function handleApagar() {
+    setIsApagando(true)
+    try {
+      if (gemini.state === 'connected' || gemini.state === 'connecting') gemini.disconnect()
+      const res = await fetch(`/api/avatar/sessoes/${sessaoId}`, { method: 'DELETE' })
+      if (res.ok) {
+        toast.success('Sessão apagada.')
+        router.push('/avatares')
+      } else {
+        toast.error('Não foi possível apagar a sessão.')
+        setMostrarConfirmApagar(false)
+      }
+    } catch {
+      toast.error('Erro ao apagar sessão.')
+      setMostrarConfirmApagar(false)
+    } finally {
+      setIsApagando(false)
+    }
+  }
+
   // ─── Derived state ─────────────────────────────────────────────────────────────
 
   const isAvatarSpeaking =
@@ -340,6 +364,44 @@ export function AvatarChat({
           isLoadingReport={isGerandoRelatorio}
           onClose={() => setMostrarFicheiro(false)}
         />
+      )}
+
+      {mostrarConfirmApagar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div
+            className="rounded-xl border p-6 space-y-4 max-w-sm w-full mx-4 shadow-xl"
+            style={{ background: 'var(--card)', borderColor: 'var(--border)' }}
+          >
+            <div className="space-y-1.5">
+              <p className="font-medium text-sm" style={{ color: 'var(--foreground)' }}>
+                Apagar sessão?
+              </p>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
+                Esta acção é irreversível. Todas as mensagens serão apagadas e serás redireccionado para os Avatares.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMostrarConfirmApagar(false)}
+                disabled={isApagando}
+                className="px-3 h-8 rounded-md text-xs border transition-colors disabled:opacity-50"
+                style={{ borderColor: 'var(--border)', color: 'var(--muted-foreground)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleApagar}
+                disabled={isApagando}
+                className="px-3 h-8 rounded-md text-xs font-medium transition-colors disabled:opacity-50"
+                style={{ background: 'oklch(0.52 0.22 25)', color: 'white' }}
+              >
+                {isApagando ? 'A apagar…' : 'Apagar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="flex flex-col flex-1 min-h-0">
@@ -422,14 +484,25 @@ export function AvatarChat({
                 </Button>
               </>
             ) : !mostrarConfirmConcluir ? (
-              <button
-                type="button"
-                onClick={() => setMostrarConfirmConcluir(true)}
-                className="text-xs underline"
-                style={{ color: 'var(--muted-foreground)' }}
-              >
-                Concluir sessão
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMostrarConfirmApagar(true)}
+                  className="p-1.5 rounded transition-colors"
+                  style={{ color: 'var(--muted-foreground)' }}
+                  title="Apagar sessão"
+                >
+                  🗑️
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMostrarConfirmConcluir(true)}
+                  className="text-xs underline"
+                  style={{ color: 'var(--muted-foreground)' }}
+                >
+                  Concluir sessão
+                </button>
+              </div>
             ) : (
               <div className="flex items-center gap-2">
                 <span className="text-xs hidden sm:inline" style={{ color: 'var(--foreground)' }}>

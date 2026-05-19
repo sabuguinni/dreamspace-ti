@@ -80,6 +80,19 @@ export function useAvatarSessoes() {
   })
 }
 
+// ── Delete session ────────────────────────────────────────────────────────────
+
+export function useApagarSessaoAvatar() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/avatar/sessoes/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Erro ao apagar sessão')
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK_BASE }),
+  })
+}
+
 // ── Conclude session ──────────────────────────────────────────────────────────
 
 export function useConcluirAvatarSessao() {

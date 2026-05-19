@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { useAvatarSessoes } from '@/lib/hooks/useAvatar'
+import { useAvatarSessoes, useApagarSessaoAvatar } from '@/lib/hooks/useAvatar'
 import { FicheiroModal } from '@/components/avatar/FicheiroModal'
 import { getAvatar } from '@/lib/content/avatares'
 import type { SessaoAvatar, AvatarReport } from '@/lib/types'
@@ -16,9 +16,18 @@ function scoreColor(score: number): string {
 
 export default function HistoricoPage() {
   const { data: sessoes, isLoading } = useAvatarSessoes()
+  const apagar = useApagarSessaoAvatar()
   const [ficheiroSessao, setFicheiroSessao] = useState<SessaoAvatar | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const concluidas = (sessoes ?? []).filter(s => s.estado === 'concluida')
+
+  function handleConfirmDelete() {
+    if (!confirmDeleteId) return
+    apagar.mutate(confirmDeleteId, {
+      onSuccess: () => setConfirmDeleteId(null),
+    })
+  }
 
   return (
     <div className="max-w-2xl space-y-6 animate-fade-in">
@@ -142,6 +151,15 @@ export default function HistoricoPage() {
                   >
                     Nova sessão
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteId(sessao.id)}
+                    className="inline-flex items-center justify-center rounded-md px-3 h-8 text-xs font-medium border transition-colors"
+                    style={{ borderColor: 'var(--border)', color: 'var(--muted-foreground)' }}
+                    title="Apagar sessão"
+                  >
+                    🗑️ Apagar
+                  </button>
                 </div>
               </div>
             )
@@ -165,6 +183,45 @@ export default function HistoricoPage() {
           />
         )
       })()}
+
+      {/* Delete confirmation modal */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div
+            className="rounded-xl border p-6 space-y-4 max-w-sm w-full mx-4 shadow-xl"
+            style={{ background: 'var(--card)', borderColor: 'var(--border)' }}
+          >
+            <div className="space-y-1.5">
+              <p className="font-medium text-sm" style={{ color: 'var(--foreground)' }}>
+                Apagar sessão?
+              </p>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
+                Esta acção é irreversível. Todas as mensagens desta sessão serão apagadas.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={apagar.isPending}
+                className="px-3 h-8 rounded-md text-xs border transition-colors disabled:opacity-50"
+                style={{ borderColor: 'var(--border)', color: 'var(--muted-foreground)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={apagar.isPending}
+                className="px-3 h-8 rounded-md text-xs font-medium transition-colors disabled:opacity-50"
+                style={{ background: 'oklch(0.52 0.22 25)', color: 'white' }}
+              >
+                {apagar.isPending ? 'A apagar…' : 'Apagar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

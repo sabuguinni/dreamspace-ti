@@ -64,6 +64,17 @@ export function useCriarSessaoSupervisor() {
   })
 }
 
+export function useApagarSessaoSupervisor() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/supervisor/sessoes/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Erro ao apagar sessão')
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
+  })
+}
+
 export function useConcluirSessao() {
   const qc = useQueryClient()
   return useMutation({

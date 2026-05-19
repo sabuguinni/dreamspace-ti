@@ -1,7 +1,8 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
-import { useSessoesSupervisor } from '@/lib/hooks/useSupervisor'
+import { useSessoesSupervisor, useApagarSessaoSupervisor } from '@/lib/hooks/useSupervisor'
 import { SessaoCard } from '@/components/supervisor/SessaoCard'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -28,6 +29,15 @@ function SupervisorSkeleton() {
 
 export default function SupervisorPage() {
   const { data: sessoes, isLoading } = useSessoesSupervisor()
+  const apagar = useApagarSessaoSupervisor()
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  function handleConfirmDelete() {
+    if (!confirmDeleteId) return
+    apagar.mutate(confirmDeleteId, {
+      onSuccess: () => setConfirmDeleteId(null),
+    })
+  }
 
   return (
     <div className="max-w-2xl space-y-6 animate-fade-in">
@@ -79,8 +89,51 @@ export default function SupervisorPage() {
       {!isLoading && sessoes && sessoes.length > 0 && (
         <div className="space-y-3">
           {sessoes.map(sessao => (
-            <SessaoCard key={sessao.id} sessao={sessao} />
+            <SessaoCard
+              key={sessao.id}
+              sessao={sessao}
+              onDelete={setConfirmDeleteId}
+            />
           ))}
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div
+            className="rounded-xl border p-6 space-y-4 max-w-sm w-full mx-4 shadow-xl"
+            style={{ background: 'var(--card)', borderColor: 'var(--border)' }}
+          >
+            <div className="space-y-1.5">
+              <p className="font-medium text-sm" style={{ color: 'var(--foreground)' }}>
+                Apagar sessão?
+              </p>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
+                Esta acção é irreversível. Todas as mensagens desta sessão serão apagadas.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={apagar.isPending}
+                className="px-3 h-8 rounded-md text-xs border transition-colors disabled:opacity-50"
+                style={{ borderColor: 'var(--border)', color: 'var(--muted-foreground)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={apagar.isPending}
+                className="px-3 h-8 rounded-md text-xs font-medium transition-colors disabled:opacity-50"
+                style={{ background: 'oklch(0.52 0.22 25)', color: 'white' }}
+              >
+                {apagar.isPending ? 'A apagar…' : 'Apagar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
