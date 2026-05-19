@@ -241,10 +241,21 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
           {/* Avatar */}
           <div className="relative">
             <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold"
+              className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center text-sm font-semibold"
               style={{ background: 'oklch(0.42 0.12 288)', color: 'white' }}
             >
-              H
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/hugo-avatar.png"
+                alt="Hugo"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none'
+                  const span = e.currentTarget.nextElementSibling as HTMLElement | null
+                  if (span) span.style.display = 'flex'
+                }}
+              />
+              <span style={{ display: 'none' }} className="w-full h-full items-center justify-center">H</span>
             </div>
             {isPlaying && (
               <span

@@ -54,10 +54,21 @@ export function HugoFloatingButton() {
           type="button"
           onClick={handleOpen}
           title="Fala com o Hugo"
-          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-lg flex items-center justify-center text-white text-lg transition-transform hover:scale-105 active:scale-95"
+          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-lg overflow-hidden flex items-center justify-center text-white text-lg transition-transform hover:scale-105 active:scale-95"
           style={{ background: 'oklch(0.42 0.12 288)' }}
         >
-          H
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/hugo-avatar.png"
+            alt="Hugo"
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none'
+              const span = e.currentTarget.nextElementSibling as HTMLElement | null
+              if (span) span.style.display = 'flex'
+            }}
+          />
+          <span style={{ display: 'none' }} className="w-full h-full items-center justify-center text-lg">H</span>
         </button>
       )}
 
