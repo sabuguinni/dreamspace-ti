@@ -77,7 +77,7 @@ function DimensaoCard({ label, dimensao }: { label: string; dimensao: { score: n
   )
 }
 
-function SupervisorReportPanel({ report }: { report: SupervisorReport }) {
+function SupervisorReportPanel({ report, sessaoId }: { report: SupervisorReport; sessaoId: string }) {
   const overallColor = scoreColor(report.overallScore)
   return (
     <div
@@ -133,6 +133,38 @@ function SupervisorReportPanel({ report }: { report: SupervisorReport }) {
       <div className="rounded-lg border p-3" style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
         <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--muted-foreground)' }}>Próximos passos</p>
         <p className="text-sm leading-relaxed" style={{ color: 'var(--foreground)' }}>{report.proximosPassos}</p>
+      </div>
+
+      {/* Download buttons */}
+      <div className="flex flex-wrap gap-2 pt-1">
+        <button
+          type="button"
+          onClick={() => {
+            fetch('/api/supervisor/sessoes/' + sessaoId + '/pdf?tipo=transcript')
+              .then(r => { if (!r.ok) { toast.error('Transcricao nao disponivel'); return null; } return r.blob(); })
+              .then(blob => { if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'transcricao-sessao-' + sessaoId.slice(0, 8) + '.pdf'; a.click(); URL.revokeObjectURL(url); })
+              .catch(() => toast.error('Erro ao descarregar PDF'));
+          }}
+          className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium border transition-colors"
+          style={{ borderColor: 'var(--border)', color: 'var(--foreground)', background: 'var(--background)' }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Transcrição PDF
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            fetch('/api/supervisor/sessoes/' + sessaoId + '/pdf?tipo=relatorio')
+              .then(r => { if (!r.ok) { toast.error('Relatorio nao disponivel'); return null; } return r.blob(); })
+              .then(blob => { if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'relatorio-sessao-' + sessaoId.slice(0, 8) + '.pdf'; a.click(); URL.revokeObjectURL(url); })
+              .catch(() => toast.error('Erro ao descarregar PDF'));
+          }}
+          className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium border transition-colors"
+          style={{ borderColor: 'var(--border)', color: 'var(--foreground)', background: 'var(--background)' }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Relatório PDF
+        </button>
       </div>
     </div>
   )
@@ -727,7 +759,7 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
                 isGeneratingReport
                   ? <ReportLoadingIndicator />
                   : supervisorReport
-                    ? <SupervisorReportPanel report={supervisorReport} />
+                    ? <SupervisorReportPanel report={supervisorReport} sessaoId={sessaoId} />
                     : <ReportGenerateButton onGenerate={() => generateReport()} />
               )}
 
@@ -862,7 +894,7 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
                 isGeneratingReport
                   ? <ReportLoadingIndicator />
                   : supervisorReport
-                    ? <SupervisorReportPanel report={supervisorReport} />
+                    ? <SupervisorReportPanel report={supervisorReport} sessaoId={sessaoId} />
                     : <ReportGenerateButton onGenerate={() => generateReport()} />
               )}
 
