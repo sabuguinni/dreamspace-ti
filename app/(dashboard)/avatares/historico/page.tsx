@@ -157,6 +157,7 @@ export default function HistoricoPage() {
         const report = (notas.avatar_report ?? null) as AvatarReport | null
         return (
           <FicheiroModal
+            sessaoId={ficheiroSessao.id}
             nome={avatar.nome}
             ficheiro={avatar.ficheiroSecreto}
             report={report}

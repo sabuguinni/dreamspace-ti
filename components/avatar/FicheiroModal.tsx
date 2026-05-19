@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { FicheiroSecreto, AvatarReport } from '@/lib/types'
 
 interface Props {
+  sessaoId: string
   nome: string
   ficheiro: FicheiroSecreto
   report?: AvatarReport | null
@@ -36,7 +37,7 @@ function scoreColor(score: number): string {
   return 'oklch(0.52 0.22 25)'                    // red
 }
 
-export function FicheiroModal({ nome, ficheiro, report, isLoadingReport, onClose }: Props) {
+export function FicheiroModal({ sessaoId, nome, ficheiro, report, isLoadingReport, onClose }: Props) {
   const [tab, setTab] = useState<TabKey>('historia')
   const [checked, setChecked] = useState<Record<string, boolean>>({})
 
@@ -338,9 +339,41 @@ export function FicheiroModal({ nome, ficheiro, report, isLoadingReport, onClose
 
         {/* Footer */}
         <div
-          className="px-6 py-4 border-t flex justify-end"
+          className="px-6 py-4 border-t flex items-center justify-between gap-3 flex-wrap"
           style={{ borderColor: 'var(--border)' }}
         >
+          <div className="flex gap-2">
+            {report && (
+              <button
+                type="button"
+                onClick={() => {
+                  fetch('/api/avatar/sessoes/' + sessaoId + '/pdf?tipo=relatorio')
+                    .then(r => r.ok ? r.blob() : null)
+                    .then(blob => { if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'relatorio-avatar-' + sessaoId.slice(0, 8) + '.pdf'; a.click(); URL.revokeObjectURL(url); })
+                    .catch(() => {});
+                }}
+                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium border transition-colors"
+                style={{ borderColor: 'var(--border)', color: 'var(--foreground)', background: 'var(--background)' }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Relatório PDF
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                fetch('/api/avatar/sessoes/' + sessaoId + '/pdf?tipo=transcript')
+                  .then(r => r.ok ? r.blob() : null)
+                  .then(blob => { if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'transcricao-avatar-' + sessaoId.slice(0, 8) + '.pdf'; a.click(); URL.revokeObjectURL(url); })
+                  .catch(() => {});
+              }}
+              className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium border transition-colors"
+              style={{ borderColor: 'var(--border)', color: 'var(--foreground)', background: 'var(--background)' }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Transcrição PDF
+            </button>
+          </div>
           <button
             type="button"
             onClick={onClose}

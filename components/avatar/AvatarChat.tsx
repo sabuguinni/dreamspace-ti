@@ -334,6 +334,7 @@ export function AvatarChat({
     <>
       {mostrarFicheiro && (
         <FicheiroModal
+          sessaoId={sessaoId}
           nome={avatarNome}
           ficheiro={ficheiro}
           report={report}
