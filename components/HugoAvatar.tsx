@@ -131,7 +131,7 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
     ])
     setIsLoading(true)
 
-    // ── Voice mode: 1 round-trip (non-streaming Claude + ElevenLabs inline) ─
+    // ── Voice mode: streaming audio via MediaSource API ─────────────────────
     if (voiceEnabled) {
       try {
         const res = await fetch('/api/hugo', {
@@ -152,23 +152,82 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-        const { text: replyText, audio } = await res.json() as { text: string; audio: string }
+        // Show text immediately from header — no waiting for audio to finish
+        const rawHeader = res.headers.get('X-Hugo-Text') ?? ''
+        const replyText = rawHeader ? decodeURIComponent(rawHeader) : '…'
         setMsgs(prev => prev.map(m => m.id === aid ? { ...m, content: replyText, streaming: false } : m))
 
-        // Play base64 audio inline — no second round-trip
+        // Stream audio — MediaSource for Chrome/Firefox, blob fallback for Safari
         setIsPlaying(true)
-        if (audioRef.current) audioRef.current.pause()
-        const audioEl = new Audio(`data:audio/mpeg;base64,${audio}`)
-        audioRef.current = audioEl
-        audioEl.onended = () => {
-          setIsPlaying(false)
-          fetch('/api/credits').then(r => r.json()).then(d => {
-            setBalanceCents(d.balanceCents ?? 0)
-            setIsAdmin(d.isAdmin ?? false)
-          }).catch(() => {})
+        if (audioRef.current) {
+          audioRef.current.pause()
+          audioRef.current = null
         }
-        audioEl.onerror = () => setIsPlaying(false)
-        await audioEl.play().catch(() => setIsPlaying(false))
+
+        const MIME = 'audio/mpeg'
+        const supportsMediaSource = typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(MIME)
+
+        if (supportsMediaSource) {
+          const mediaSource = new MediaSource()
+          const audioUrl = URL.createObjectURL(mediaSource)
+          const audioEl = new Audio(audioUrl)
+          audioRef.current = audioEl
+
+          const refreshCredits = () => {
+            fetch('/api/credits').then(r => r.json()).then(d => {
+              setBalanceCents(d.balanceCents ?? 0)
+              setIsAdmin(d.isAdmin ?? false)
+            }).catch(() => {})
+          }
+
+          audioEl.onended = () => { setIsPlaying(false); URL.revokeObjectURL(audioUrl); refreshCredits() }
+          audioEl.onerror = () => { setIsPlaying(false); URL.revokeObjectURL(audioUrl) }
+
+          mediaSource.addEventListener('sourceopen', async () => {
+            try {
+              const sb = mediaSource.addSourceBuffer(MIME)
+              const reader = res.body!.getReader()
+
+              const pump = async (): Promise<void> => {
+                const { done, value } = await reader.read()
+                if (done) {
+                  const end = () => { if (mediaSource.readyState === 'open') mediaSource.endOfStream() }
+                  if (!sb.updating) end()
+                  else sb.addEventListener('updateend', end, { once: true })
+                  return
+                }
+                const append = () => {
+                  sb.appendBuffer(value)
+                  sb.addEventListener('updateend', pump, { once: true })
+                }
+                if (!sb.updating) append()
+                else sb.addEventListener('updateend', append, { once: true })
+              }
+
+              pump().catch(err => { console.error('[Hugo stream]', err); setIsPlaying(false) })
+              await audioEl.play().catch(() => setIsPlaying(false))
+            } catch (err) {
+              console.error('[Hugo MediaSource]', err)
+              setIsPlaying(false)
+            }
+          }, { once: true })
+        } else {
+          // Safari fallback: collect full blob then play
+          const blob = await res.blob()
+          const blobUrl = URL.createObjectURL(blob)
+          const audioEl = new Audio(blobUrl)
+          audioRef.current = audioEl
+          audioEl.onended = () => {
+            setIsPlaying(false)
+            URL.revokeObjectURL(blobUrl)
+            fetch('/api/credits').then(r => r.json()).then(d => {
+              setBalanceCents(d.balanceCents ?? 0)
+              setIsAdmin(d.isAdmin ?? false)
+            }).catch(() => {})
+          }
+          audioEl.onerror = () => { setIsPlaying(false); URL.revokeObjectURL(blobUrl) }
+          await audioEl.play().catch(() => setIsPlaying(false))
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Erro desconhecido'
         setMsgs(prev => prev.map(m =>

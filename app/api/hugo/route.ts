@@ -96,16 +96,16 @@ export async function POST(req: Request) {
       )
     }
 
-    let audioBase64: string
+    // ElevenLabs streaming — passthrough ReadableStream directly to browser
+    let elevenRes: Response
     try {
-      const ttsRes = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+      elevenRes = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`,
         {
           method: 'POST',
           headers: {
             'xi-api-key': elevenKey,
             'Content-Type': 'application/json',
-            Accept: 'audio/mpeg',
           },
           body: JSON.stringify({
             text: claudeText,
@@ -114,18 +114,16 @@ export async function POST(req: Request) {
           }),
         }
       )
-      if (!ttsRes.ok) {
-        const errText = await ttsRes.text().catch(() => '')
-        throw new Error(`ElevenLabs ${ttsRes.status}: ${errText.slice(0, 200)}`)
+      if (!elevenRes.ok) {
+        const errText = await elevenRes.text().catch(() => '')
+        throw new Error(`ElevenLabs ${elevenRes.status}: ${errText.slice(0, 200)}`)
       }
-      const buf = await ttsRes.arrayBuffer()
-      audioBase64 = Buffer.from(buf).toString('base64')
     } catch (err) {
       console.error('[Hugo voice] ElevenLabs error:', err)
       return NextResponse.json({ error: 'Erro ao sintetizar voz. Tenta daqui a pouco.' }, { status: 503 })
     }
 
-    // Debit: claude_message + voice_tts (non-blocking)
+    // Debit: claude_message + voice_tts (non-blocking, fire-and-forget)
     if (lmsUser) {
       debit(lmsUser.userId, 'claude_message', 1, 'Hugo guia voz').catch(err =>
         console.warn('[Hugo voice] debit claude_message failed:', err.message)
@@ -136,7 +134,17 @@ export async function POST(req: Request) {
       )
     }
 
-    return NextResponse.json({ text: claudeText, audio: audioBase64 })
+    // Stream audio bytes directly — text goes in header so client can show it immediately
+    return new Response(elevenRes.body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'audio/mpeg',
+        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache',
+        'X-Hugo-Text': encodeURIComponent(claudeText),
+        'Access-Control-Expose-Headers': 'X-Hugo-Text',
+      },
+    })
   }
 
   // ── Text mode: SSE stream ─────────────────────────────────────────────────
