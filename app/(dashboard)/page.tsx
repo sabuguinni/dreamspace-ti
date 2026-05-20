@@ -48,11 +48,15 @@ export default async function DashboardPage() {
     supabase
       .from('sessoes_supervisor')
       .select('*', { count: 'exact', head: true })
-      .eq('user_id', user!.id),
+      .eq('user_id', user!.id)
+      .is('deleted_at', null)
+      .in('estado', ['em_curso', 'concluida']),
     supabase
       .from('sessoes_avatar')
       .select('*', { count: 'exact', head: true })
-      .eq('user_id', user!.id),
+      .eq('user_id', user!.id)
+      .is('deleted_at', null)
+      .in('estado', ['em_curso', 'concluida']),
   ])
 
   const p = profile as Profile
@@ -115,8 +119,6 @@ export default async function DashboardPage() {
     miguel: 'Miguel',
     beatriz: 'Beatriz',
   }
-
-  const modulosDesbloqueados = p.modulos_acesso ?? [1]
 
   return (
     <div className="max-w-3xl space-y-8 animate-fade-in">
@@ -231,55 +233,39 @@ export default async function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {MODULOS.map(modulo => {
-            const desbloqueado = modulosDesbloqueados.includes(modulo.numero)
-            const disponivel = modulo.publicado && desbloqueado
-
-            return (
-              <div key={modulo.numero}>
-                {disponivel ? (
-                  <Link href={`/manual/modulo-${modulo.numero}`}
-                    className="block rounded-md border p-3 transition-colors hover:border-primary/40 group"
-                    style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-0.5">
-                        <p className="text-xs font-medium" style={{ color: 'var(--primary)' }}>
-                          Módulo {modulo.numero}
-                        </p>
-                        <p className="text-xs font-medium leading-tight" style={{ color: 'var(--foreground)' }}>
-                          {modulo.titulo}
-                        </p>
-                      </div>
-                    </div>
-                  </Link>
-                ) : (
-                  <div className="rounded-md border p-3 opacity-50 cursor-not-allowed select-none"
-                    style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-0.5">
-                        <p className="text-xs font-medium" style={{ color: 'var(--muted-foreground)' }}>
-                          Módulo {modulo.numero}
-                        </p>
-                        <p className="text-xs font-medium leading-tight" style={{ color: 'var(--muted-foreground)' }}>
-                          {modulo.titulo}
-                        </p>
-                      </div>
-                      {!desbloqueado ? (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                          className="shrink-0 mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
-                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                        </svg>
-                      ) : (
-                        <span className="text-xs shrink-0" style={{ color: 'var(--muted-foreground)' }}>Em breve</span>
-                      )}
-                    </div>
+          {MODULOS.map(modulo => (
+            <div key={modulo.numero}>
+              {modulo.publicado ? (
+                <Link href={`/manual/modulo-${modulo.numero}`}
+                  className="block rounded-md border p-3 transition-colors hover:border-primary/40 group"
+                  style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-medium" style={{ color: 'var(--primary)' }}>
+                      Módulo {modulo.numero}
+                    </p>
+                    <p className="text-xs font-medium leading-tight" style={{ color: 'var(--foreground)' }}>
+                      {modulo.titulo}
+                    </p>
                   </div>
-                )}
-              </div>
-            )
-          })}
+                </Link>
+              ) : (
+                <div className="rounded-md border p-3 opacity-40 cursor-not-allowed select-none"
+                  style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-medium" style={{ color: 'var(--muted-foreground)' }}>
+                        Módulo {modulo.numero}
+                      </p>
+                      <p className="text-xs font-medium leading-tight" style={{ color: 'var(--muted-foreground)' }}>
+                        {modulo.titulo}
+                      </p>
+                    </div>
+                    <span className="text-xs shrink-0" style={{ color: 'var(--muted-foreground)' }}>Em breve</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 

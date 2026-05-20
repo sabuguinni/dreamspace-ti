@@ -9,6 +9,17 @@ interface ChatMsg {
   streaming?: boolean
 }
 
+const HISTORY_KEY = 'hugo_chat_history'
+const MAX_HISTORY = 20
+
+/** Inline markdown: **bold** and *italic* → HTML. Content comes from our own API so XSS risk is minimal. */
+function renderMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/gs, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/gs, '<em>$1</em>')
+    .replace(/\n/g, '<br />')
+}
+
 interface Props {
   initialMessage?: string
   onClose?: () => void
@@ -28,7 +39,7 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Load voice preference and balance
+  // Load voice preference, balance, and persisted chat history
   useEffect(() => {
     const saved = localStorage.getItem('hugo_voice_enabled')
     if (saved === 'true') setVoiceEnabled(true)
@@ -40,14 +51,30 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
         setIsAdmin(d.isAdmin ?? false)
       })
       .catch(() => {})
-  }, [])
 
-  // Show initial message
-  useEffect(() => {
+    // Restore persisted history; fall back to initialMessage if none
+    const storedRaw = localStorage.getItem(HISTORY_KEY)
+    if (storedRaw) {
+      try {
+        const parsed = JSON.parse(storedRaw) as ChatMsg[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMsgs(parsed)
+          return
+        }
+      } catch { /* corrupt data — ignore */ }
+    }
     if (initialMessage) {
       setMsgs([{ id: 'init', role: 'assistant', content: initialMessage }])
     }
-  }, [initialMessage])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist history whenever messages change (skip empty + streaming states)
+  useEffect(() => {
+    if (msgs.length === 0) return
+    const stable = msgs.filter(m => !m.streaming).slice(-MAX_HISTORY)
+    if (stable.length === 0) return
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(stable))
+  }, [msgs])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -63,6 +90,11 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
       }
     }
   }, [])
+
+  function handleCloseClick() {
+    localStorage.removeItem(HISTORY_KEY)
+    onClose?.()
+  }
 
   function toggleVoice() {
     const next = !voiceEnabled
@@ -353,7 +385,7 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
           {onClose && (
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseClick}
               className="text-lg leading-none p-1 rounded"
               style={{ color: 'var(--muted-foreground)' }}
               title="Fechar"
@@ -400,15 +432,19 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
                 className="max-w-[85%] rounded-2xl rounded-tl-sm px-3 py-2 text-sm leading-relaxed"
                 style={{ background: 'var(--card)', border: '1px solid var(--border)', borderLeft: '3px solid oklch(0.42 0.12 288)' }}
               >
-                {m.content || (
+                {m.content ? (
+                  <>
+                    <span dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+                    {m.streaming && (
+                      <span className="inline-block w-0.5 h-4 ml-0.5 animate-pulse align-middle" style={{ background: 'oklch(0.42 0.12 288)' }} />
+                    )}
+                  </>
+                ) : (
                   <span className="inline-flex gap-1">
                     {[0, 150, 300].map(d => (
                       <span key={d} className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: `${d}ms` }} />
                     ))}
                   </span>
-                )}
-                {m.streaming && m.content && (
-                  <span className="inline-block w-0.5 h-4 ml-0.5 animate-pulse align-middle" style={{ background: 'oklch(0.42 0.12 288)' }} />
                 )}
               </div>
             )}

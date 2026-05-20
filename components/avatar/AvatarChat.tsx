@@ -44,6 +44,8 @@ interface Props {
   avatarIdade: number
   avatarProfissao: string
   ficheiro: FicheiroSecreto
+  /** When set (new sessions), overrides localStorage preference for the first render */
+  initialMode?: AvatarMode
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -57,6 +59,7 @@ export function AvatarChat({
   avatarIdade,
   avatarProfissao,
   ficheiro,
+  initialMode,
 }: Props) {
   const [sessao, setSessao] = useState<SessaoAvatar>(sessaoInicial)
   const router = useRouter()
@@ -71,7 +74,8 @@ export function AvatarChat({
   const [errorMessage, setErrorMessage] = useState<string>('')
 
   // ── Mode state ────────────────────────────────────────────────────────────────
-  const [avatarMode, setAvatarMode] = useState<AvatarMode>('text')
+  // initialMode (from mode-selection screen) takes priority; localStorage is used for returning sessions
+  const [avatarMode, setAvatarMode] = useState<AvatarMode>(initialMode ?? 'text')
 
   // ── Text-mode state ───────────────────────────────────────────────────────────
   const [textMsgs, setTextMsgs] = useState<TextMsg[]>([])
@@ -155,9 +159,11 @@ export function AvatarChat({
 
   // Load mode preference + mensagens iniciais + admin status + cached report
   useEffect(() => {
-    // Restore mode preference
-    const storedMode = localStorage.getItem(MODE_KEY) as AvatarMode | null
-    setAvatarMode(storedMode ?? 'text')
+    // Only restore mode preference when no explicit initialMode was provided (returning sessions)
+    if (!initialMode) {
+      const storedMode = localStorage.getItem(MODE_KEY) as AvatarMode | null
+      setAvatarMode(storedMode ?? 'text')
+    }
 
     // Pre-populate text messages from initial load
     if (mensagensIniciais.length > 0) {
