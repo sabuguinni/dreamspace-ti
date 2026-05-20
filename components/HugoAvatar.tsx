@@ -92,8 +92,12 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
   }, [])
 
   function handleCloseClick() {
-    localStorage.removeItem(HISTORY_KEY)
     onClose?.()
+  }
+
+  function handleNewConversation() {
+    localStorage.removeItem(HISTORY_KEY)
+    setMsgs(initialMessage ? [{ id: 'init', role: 'assistant', content: initialMessage }] : [])
   }
 
   function toggleVoice() {
@@ -372,6 +376,16 @@ export function HugoAvatar({ initialMessage, onClose }: Props) {
           >
             {balanceLabel}
           </a>
+          {/* Nova conversa */}
+          <button
+            type="button"
+            onClick={handleNewConversation}
+            className="text-sm leading-none p-1 rounded"
+            style={{ color: 'var(--muted-foreground)' }}
+            title="Nova conversa"
+          >
+            🗑️
+          </button>
           {/* Voice toggle */}
           <button
             type="button"
