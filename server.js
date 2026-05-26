@@ -75,6 +75,19 @@ function buildSetupMessage(modelName, systemPrompt, voiceName, resumptionHandle)
     },
     inputAudioTranscription: {},
     outputAudioTranscription: {},
+    // VAD config — evita que ruído de fundo dispare interrupted: true a meio da resposta.
+    // START_SENSITIVITY_LOW: só activa com speech claro; END_SENSITIVITY_HIGH: espera silêncio prolongado.
+    // silenceDurationMs:1500 → 1.5s de silêncio antes de turnComplete (default era ~800ms).
+    // NÃO replicar em buildSetupMessageStt: esse modo usa VAD natural para detectar fim do utilizador.
+    realtimeInputConfig: {
+      automaticActivityDetection: {
+        disabled: false,
+        startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
+        endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+        prefixPaddingMs: 300,
+        silenceDurationMs: 1500,
+      },
+    },
     contextWindowCompression: { slidingWindow: {} },
     sessionResumption: resumptionHandle ? { handle: resumptionHandle } : {},
   }

@@ -90,6 +90,16 @@ export function AvatarChat({
   const pendingOutputRef = useRef<string>('')
   const pendingInputRef = useRef<string>('')
 
+  // Pause/resume capture refs (synced from gemini hook after creation —
+  // avoids circular dep entre callbacks e o objecto gemini).
+  // Quando o avatar começa a falar (1º chunk de áudio) chamamos pauseCapture
+  // para o microfone não capturar ruído de fundo que o VAD interpretaria como
+  // speech do utilizador, disparando interrupted:true e cortando a resposta.
+  const pauseCaptureRef = useRef<(() => void) | null>(null)
+  const resumeCaptureRef = useRef<(() => void) | null>(null)
+  // Flag para chamar pauseCapture apenas no 1º chunk do turno (não a cada chunk).
+  const audioStartedRef = useRef(false)
+
   // Voice session start time for duration calculation
   const voiceStartRef = useRef<number | null>(null)
 
@@ -115,6 +125,16 @@ export function AvatarChat({
     }
   }, [])
 
+  // Primeiro chunk de áudio do avatar → pausa captura do microfone para que
+  // ruído de fundo não dispare o VAD do Gemini (que cortaria a resposta com
+  // interrupted:true). Resume em handleTurnComplete.
+  const handleAudioChunk = useCallback((_pcm: string) => {
+    if (!audioStartedRef.current) {
+      audioStartedRef.current = true
+      pauseCaptureRef.current?.()
+    }
+  }, [])
+
   const handleTurnComplete = useCallback(() => {
     const avatarTurn = pendingOutputRef.current.trim()
     const userTurn = pendingInputRef.current.trim()
@@ -127,6 +147,11 @@ export function AvatarChat({
     })
     pendingOutputRef.current = ''
     pendingInputRef.current = ''
+    // Avatar terminou de falar → retoma captura do microfone.
+    // Cobre também o caso de interrupted:true: o hook chama onTurnComplete na
+    // mesma, garantindo que o resumeCapture acontece.
+    audioStartedRef.current = false
+    resumeCaptureRef.current?.()
   }, [])
 
   const handleError = useCallback((msg: string) => {
@@ -142,13 +167,21 @@ export function AvatarChat({
           systemPrompt: voiceSystemPrompt,
           voiceName: AVATAR_VOICES[avatarSlug] ?? 'Kore',
           sessionId: sessaoId,
-          onAudioChunk: () => {},
+          onAudioChunk: handleAudioChunk,
           onTextResponse: () => {},
           onTranscription: handleTranscription,
           onTurnComplete: handleTurnComplete,
           onError: handleError,
         }
   )
+
+  // Sync pause/resume capture refs from the gemini hook.
+  // Mantém callbacks (handleAudioChunk, handleTurnComplete) sem dependência
+  // directa do objecto gemini — evita ciclo na criação do hook.
+  useEffect(() => {
+    pauseCaptureRef.current = gemini.pauseCapture
+    resumeCaptureRef.current = gemini.resumeCapture
+  }, [gemini.pauseCapture, gemini.resumeCapture])
 
   // Track voice session start time
   useEffect(() => {
