@@ -26,14 +26,11 @@ const PAIRS: Array<[string, string]> = [
   ['vindo', 'a vir'],
   ['falando', 'a falar'],
   ['pensando', 'a pensar'],
-  // vocabulário PT-BR → PT-PT
+  // vocabulário PT-BR → PT-PT (apenas termos inequívocos — sem sentido literal ambíguo em PT-PT)
   ['a gente', 'nós'],
   ['cadê', 'onde está'],
-  ['legal', 'fixe'],
   ['bacana', 'fixe'],
   ['tem que', 'tem de'],
-  ['cara', 'amigo'],
-  ['massa', 'óptimo'],
 ]
 
 function buildRe(word: string): RegExp {
