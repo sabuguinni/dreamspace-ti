@@ -48,6 +48,7 @@ export function ChatAnamnese({ sessao }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const isSendingRef = useRef(false)
   const autoStartedRef = useRef(false) // arranca o mic uma só vez em modo voz
+  const aberturaFaladaRef = useRef(false) // fala a abertura (turno 0) uma só vez em voz
 
   // Áudio do cliente em streaming — Web Audio API (playback gapless, sem new Audio() por chunk)
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -365,6 +366,20 @@ export function ChatAnamnese({ sessao }: Props) {
       handleStartVoice()
     }
   }, [voiceEnabled, concluida, gemini.state, handleStartVoice, sessao.modo])
+
+  // Modo voz: fala a abertura (turno 0) automaticamente quando o mic liga, em sessão fresca.
+  // O terapeuta ouve o cliente apresentar-se sem escrever nada primeiro.
+  useEffect(() => {
+    if (aberturaFaladaRef.current || gemini.state !== 'connected') return
+    const abertura = turns.find(t => t.turno === 0)
+    const apenasAbertura = turns.every(t => t.turno === 0) // sessão acabada de abrir
+    if (abertura?.avatar && apenasAbertura && voiceEnabled && !concluida) {
+      aberturaFaladaRef.current = true
+      gemini.pauseCapture() // corta o mic enquanto o cliente se apresenta (anti-eco)
+      void speak('/api/anamnese/tts', { text: abertura.avatar, voice: voz }, 'cliente').finally(() => gemini.resumeCapture())
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gemini.state, turns, voiceEnabled, concluida, speak, voz])
 
   const handleManualVoiceSend = useCallback(() => {
     const text = liveUserSpeech.trim()

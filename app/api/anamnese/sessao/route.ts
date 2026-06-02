@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { enforceVocabulary } from '@/lib/anthropic/vocabulary-filter'
 import { lookupUser } from '@/lib/aiCreditsClient'
 import { getAnamneseAvatar } from '@/lib/anamnese/narrativas'
+import { getAnamneseAvatarPublico } from '@/lib/anamnese/avataresPublicos'
+import { enforcePtPt } from '@/lib/anamnese/ptpt'
 import { buildAvatarSystemPrompt, AVATAR_ABERTURA_TRIGGER } from '@/lib/anamnese/prompts'
 import { ANAMNESE_DESBLOQUEIO_MINIMO, type TurnoConversa } from '@/lib/anamnese/types'
 import { isMissingAnamneseTable } from '@/lib/anamnese/serverUtils'
@@ -66,6 +68,7 @@ export async function POST(req: Request) {
   }
 
   // ── Gera a abertura do avatar (turno 0) ──────────────────────────────────────
+  const feminino = getAnamneseAvatarPublico(avatar.id)?.genero === 'f'
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   let openingText = ''
   try {
@@ -75,9 +78,9 @@ export async function POST(req: Request) {
       system: buildAvatarSystemPrompt(avatar),
       messages: [{ role: 'user', content: AVATAR_ABERTURA_TRIGGER }],
     })
-    openingText = enforceVocabulary(
+    openingText = enforcePtPt(enforceVocabulary(
       response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join(''),
-    ).texto
+    ).texto, { feminino })
   } catch (err) {
     console.error('[anamnese/sessao] opening error:', err)
     openingText = `Olá. Sou a ${avatar.nome}. Não sei bem por onde começar, mas vim cá para tentar perceber algumas coisas.`
