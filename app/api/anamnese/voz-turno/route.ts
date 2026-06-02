@@ -145,7 +145,9 @@ export async function POST(req: Request) {
           if (wav) send({ type: 'audio', audio: wav.toString('base64') })
         }
 
+        console.log('[ANTES]', fullText)
         const cleanText = limpar(fullText)
+        console.log('[DEPOIS]', cleanText)
 
         // Persiste o turno do avatar (supervisor corre depois, em /api/anamnese/supervisor)
         const proximoTurno = historico.reduce((max, t) => Math.max(max, t.turno), 0) + 1
