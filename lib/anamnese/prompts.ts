@@ -22,7 +22,9 @@ Sem gerúndios. Sem linguagem clínica.`
 export function buildAvatarSystemPrompt(avatar: AnamneseAvatar): string {
   const narrativa = avatar.narrativaManifesta.map(n => `- ${n}`).join('\n')
 
-  return `${PT_PT_BLOCK}
+  return `INSTRUÇÃO CRÍTICA: Escreve EXCLUSIVAMENTE em português de Portugal (PT-PT). É terminantemente proibido usar português do Brasil. Cada resposta será verificada — qualquer brasileirismo é uma falha grave.
+
+${PT_PT_BLOCK}
 
 És o avatar ${avatar.nome}, ${avatar.idade} anos, ${avatar.area}.
 

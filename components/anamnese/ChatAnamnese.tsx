@@ -43,6 +43,8 @@ export function ChatAnamnese({ sessao }: Props) {
   const [liveUserSpeech, setLiveUserSpeech] = useState('')
   const [voiceErro, setVoiceErro] = useState('')
   const [streamingTurno, setStreamingTurno] = useState<number | null>(null)
+  const [pensandoTurno, setPensandoTurno] = useState<number | null>(null)            // avatar a pensar (antes do áudio)
+  const [supervisorPensandoTurno, setSupervisorPensandoTurno] = useState<number | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const isSendingRef = useRef(false)
 
@@ -186,11 +188,13 @@ export function ChatAnamnese({ sessao }: Props) {
     }
     if (!turno) return
     const turnoNum = turno.turno
+    setSupervisorPensandoTurno(turnoNum)
     const sup = await fetch('/api/anamnese/supervisor', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessao_id: sessao.id, turno: turnoNum }),
     }).then(r => (r.ok ? (r.json() as Promise<{ intervencao?: IntervencaoResult }>) : null)).catch(() => null)
+    setSupervisorPensandoTurno(null)
     const intervencao = sup?.intervencao
     if (intervencao?.intervir && intervencao.intervencao && intervencao.tipo_erro) {
       const tipoErro = intervencao.tipo_erro
@@ -215,7 +219,9 @@ export function ChatAnamnese({ sessao }: Props) {
 
     const tempTurno = turns.reduce((m, t) => Math.max(m, t.turno), 0) + 1
     let turnoFinal = tempTurno
+    let firstAudio = true
     setStreamingTurno(tempTurno)
+    setPensandoTurno(tempTurno) // "[Nome] a pensar…" até o áudio começar
     setTurns(prev => [...prev, { turno: tempTurno, timestamp: '', terapeuta: msg, avatar: '', supervisor_interveio: false }])
 
     let supervisorPromise: Promise<{ intervencao?: IntervencaoResult } | null> = Promise.resolve(null)
@@ -250,12 +256,14 @@ export function ChatAnamnese({ sessao }: Props) {
             const d = evt.delta
             setTurns(prev => prev.map(t => t.turno === turnoFinal ? { ...t, avatar: (t.avatar || '') + d } : t))
           } else if (evt.type === 'audio' && evt.audio) {
+            if (firstAudio) { setPensandoTurno(null); firstAudio = false } // áudio começou → mostra o texto real
             await enqueueChunk(evt.audio)
           } else if (evt.type === 'turno' && typeof evt.turno === 'number') {
             const novo = evt.turno
             const txt = evt.avatar ?? ''
             setTurns(prev => prev.map(t => t.turno === turnoFinal ? { ...t, turno: novo, avatar: txt } : t))
             turnoFinal = novo
+            setSupervisorPensandoTurno(novo) // "Supervisor a pensar…" no bloco âmbar
             supervisorPromise = fetch('/api/anamnese/supervisor', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -271,6 +279,7 @@ export function ChatAnamnese({ sessao }: Props) {
     } finally {
       setIsLoading(false)
       setStreamingTurno(null)
+      setPensandoTurno(null)
       streamDoneRef.current = true
       resolveDrainIfDone()
     }
@@ -280,6 +289,7 @@ export function ChatAnamnese({ sessao }: Props) {
 
     // Supervisor (correu em paralelo) — bolha + voz Hugo a seguir
     const sup = await supervisorPromise
+    setSupervisorPensandoTurno(null)
     const intervencao = sup?.intervencao
     if (intervencao?.intervir && intervencao.intervencao && intervencao.tipo_erro) {
       const tipoErro = intervencao.tipo_erro
@@ -522,7 +532,16 @@ export function ChatAnamnese({ sessao }: Props) {
                     {avatar?.nome?.[0] ?? '?'}
                   </div>
                   <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed" style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}>
-                    {turn.avatar || (
+                    {turn.turno === pensandoTurno ? (
+                      <span className="inline-flex items-center gap-2" style={{ color: 'var(--muted-foreground)' }}>
+                        <span className="italic">{avatar?.nome ?? 'O cliente'} a pensar</span>
+                        <span className="inline-flex gap-1">
+                          {[0, 150, 300].map(d => (
+                            <span key={d} className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: `${d}ms` }} />
+                          ))}
+                        </span>
+                      </span>
+                    ) : turn.avatar ? turn.avatar : (
                       <span className="inline-flex gap-1">
                         {[0, 150, 300].map(d => (
                           <span key={d} className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: `${d}ms` }} />
@@ -530,7 +549,7 @@ export function ChatAnamnese({ sessao }: Props) {
                       </span>
                     )}
                   </div>
-                  {turn.avatar && (
+                  {turn.avatar && turn.turno !== pensandoTurno && (
                     <button type="button" onClick={() => replayCliente(turn.avatar)} className="shrink-0 mt-1 p-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: cor }} title={`Ouvir ${avatar?.nome ?? 'o cliente'}`}>🔈</button>
                   )}
                 </div>
@@ -542,6 +561,18 @@ export function ChatAnamnese({ sessao }: Props) {
                   onPlay={() => replaySupervisor(turn.intervencao_supervisor!)}
                   isPlaying={speakingRole === 'supervisor'}
                 />
+              )}
+              {!turn.supervisor_interveio && turn.turno === supervisorPensandoTurno && (
+                <div className="rounded-xl p-4 flex items-center gap-2" style={{ background: '#3D2B00', border: '1px solid #C9A961', color: '#F0E6D2' }}>
+                  <span className="text-base leading-none">👁</span>
+                  <span className="text-xs font-semibold tracking-widest uppercase" style={{ color: '#C9A961' }}>Supervisor · Anamnese</span>
+                  <span className="text-sm" style={{ color: '#E8DCC4' }}>a pensar</span>
+                  <span className="inline-flex gap-1">
+                    {[0, 150, 300].map(d => (
+                      <span key={d} className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: '#C9A961', animationDelay: `${d}ms` }} />
+                    ))}
+                  </span>
+                </div>
               )}
             </div>
           ))}
