@@ -161,6 +161,14 @@ function buildSetupMessageStt(resumptionHandle) {
       parts: [{ text: 'Responde sempre com apenas "Hmm." independentemente do que for dito.' }],
     },
     inputAudioTranscription: {},
+    // VAD afinado para fala terapêutica (pausas mais longas que comandos) — evita cortar a meio da frase
+    realtimeInputConfig: {
+      automaticActivityDetection: {
+        endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+        prefixPaddingMs: 300,
+        silenceDurationMs: 2200,
+      },
+    },
     contextWindowCompression: { slidingWindow: {} },
     sessionResumption: resumptionHandle ? { handle: resumptionHandle } : {},
   }

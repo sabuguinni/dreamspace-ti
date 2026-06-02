@@ -14,12 +14,6 @@ interface Props {
   sessao: SessaoAnamnese
 }
 
-interface TurnoResponse {
-  turno: TurnoConversa
-  avatar: string
-  intervencao: IntervencaoResult
-}
-
 type SpeakingRole = 'cliente' | 'supervisor' | null
 
 const VOICE_KEY = 'anamnese_voice_enabled'
@@ -42,7 +36,11 @@ export function ChatAnamnese({ sessao }: Props) {
   const [mostrarConfirmApagar, setMostrarConfirmApagar] = useState(false)
 
   // ── Voz ────────────────────────────────────────────────────────────────────
-  const [voiceEnabled, setVoiceEnabled] = useState(false)
+  // Inicializador lazy: sessão criada em modo voz abre logo em voz (sem flash de texto);
+  // localStorage funciona como override manual.
+  const [voiceEnabled, setVoiceEnabled] = useState(
+    () => sessao.modo === 'voz' || (typeof window !== 'undefined' && localStorage.getItem(VOICE_KEY) === 'true'),
+  )
   const [speakingRole, setSpeakingRole] = useState<SpeakingRole>(null)
   const [liveUserSpeech, setLiveUserSpeech] = useState('')
   const [voiceErro, setVoiceErro] = useState('')
@@ -54,11 +52,6 @@ export function ChatAnamnese({ sessao }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const startRef = useRef<number>(new Date(sessao.created_at).getTime() || Date.now())
-
-  useEffect(() => {
-    // Sessão criada em modo voz liga o modo voz automaticamente; localStorage é override manual
-    setVoiceEnabled(sessao.modo === 'voz' || localStorage.getItem(VOICE_KEY) === 'true')
-  }, [sessao.modo])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -112,6 +105,7 @@ export function ChatAnamnese({ sessao }: Props) {
     setIsLoading(true)
     let turno: TurnoConversa | null = null
     try {
+      // FASE 1 — resposta do avatar (rápida; o Supervisor NÃO bloqueia aqui)
       const res = await fetch('/api/anamnese/turno', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -122,7 +116,7 @@ export function ChatAnamnese({ sessao }: Props) {
         return
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = (await res.json()) as TurnoResponse
+      const data = (await res.json()) as { turno: TurnoConversa; avatar: string }
       turno = data.turno
       setTurns(prev => [...prev, data.turno])
     } catch (err) {
@@ -132,12 +126,35 @@ export function ChatAnamnese({ sessao }: Props) {
       setPendingTerapeuta(null)
       setIsLoading(false)
     }
-    // Fala a resposta (o mute do mic é gerido pelo chamador de voz)
-    if (turno && voiceEnabled) {
-      if (turno.avatar) await speak('/api/anamnese/tts', { text: turno.avatar, voice: voz }, 'cliente')
-      if (turno.supervisor_interveio && turno.intervencao_supervisor) {
-        await speak('/api/tts', { text: turno.intervencao_supervisor }, 'supervisor')
-      }
+    if (!turno) return
+
+    // FASE 2 — análise do Supervisor em PARALELO (corre enquanto o cliente fala)
+    const turnoNum = turno.turno
+    const supervisorPromise = fetch('/api/anamnese/supervisor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessao_id: sessao.id, turno: turnoNum }),
+    })
+      .then(r => (r.ok ? (r.json() as Promise<{ intervencao?: IntervencaoResult }>) : null))
+      .catch(() => null)
+
+    // Cliente fala primeiro (o mute do mic é gerido pelo chamador de voz)
+    if (voiceEnabled && turno.avatar) {
+      await speak('/api/anamnese/tts', { text: turno.avatar, voice: voz }, 'cliente')
+    }
+
+    // Intervenção do Supervisor, se existir — bolha + voz Hugo a seguir
+    const sup = await supervisorPromise
+    const intervencao = sup?.intervencao
+    if (intervencao?.intervir && intervencao.intervencao && intervencao.tipo_erro) {
+      const tipoErro = intervencao.tipo_erro
+      const texto = intervencao.intervencao
+      setTurns(prev => prev.map(t =>
+        t.turno === turnoNum
+          ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto }
+          : t,
+      ))
+      if (voiceEnabled) await speak('/api/tts', { text: texto }, 'supervisor')
     }
   }, [isLoading, concluida, sessao.id, voiceEnabled, speak, voz])
 
