@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { AVATARES_LISTA } from '@/lib/content/avatares'
 import { AvatarCard } from '@/components/avatar/AvatarCard'
+import { TreinoTabs } from '@/components/anamnese/TreinoTabs'
 
 export default function AvataresPage() {
   return (
@@ -27,6 +28,8 @@ export default function AvataresPage() {
           Histórico de sessões
         </Link>
       </div>
+
+      <TreinoTabs />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {AVATARES_LISTA.map(avatar => (

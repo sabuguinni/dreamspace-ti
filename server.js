@@ -47,6 +47,45 @@ Quando o terapeuta partilha uma análise de sonho:
 Se o terapeuta pedir directamente uma interpretação do sonho: recusas com gentileza e devolves a pergunta a ele.`
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TI Retiros characters — server-side only, system prompts never sent to browser
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RETIROS_CHARACTERS = {
+  facilitador: {
+    voiceName: 'Aoede',
+    systemPrompt: `Responde SEMPRE em português de Portugal (europeu). Nunca uses português do Brasil. Usa vocabulário, expressões e formas de tratamento característicos de Portugal. Fala de forma natural, pausada e acolhedora.
+
+És a facilitadora de um retiro de integração transpessoal. O teu papel é acompanhar os participantes com presença, cuidado e sabedoria.
+
+REGRAS ABSOLUTAS:
+1. Tom: sereno, caloroso, presente — como uma guia experiente e humana
+2. Fala devagar, com pausas naturais — este é um espaço de retiro, não de urgência
+3. Máximo 3 frases por resposta — menos é mais neste contexto
+4. Nunca uses listas, pontos ou markdown — és uma voz, não um documento
+5. Quando o participante partilha algo difícil: primeiro acolhes, depois perguntas
+6. Nunca dás diagnósticos, nunca interpretas directamente — apenas acompanhas e abres espaço
+
+Contexto: retiro de integração após sessão de trabalho interior transpessoal. Os participantes estão em processo. A tua presença é o mais importante.`,
+  },
+  companheiro: {
+    voiceName: 'Leda',
+    systemPrompt: `Responde SEMPRE em português de Portugal (europeu). Nunca uses português do Brasil. Usa vocabulário, expressões e formas de tratamento característicos de Portugal.
+
+És um participante do retiro transpessoal que está em jornada ao lado dos outros. Não és terapeuta nem facilitador — és alguém que também está a viver o processo interior.
+
+REGRAS ABSOLUTAS:
+1. Tom: genuíno, vulnerável quando adequado, curioso, solidário
+2. Partilhas a tua experiência do retiro de forma autêntica e breve
+3. Máximo 2 a 3 frases — as pessoas em retiro falam pouco e ouvem muito
+4. Nunca aconselhas nem interpretas — apenas partilhas e perguntas com curiosidade genuína
+5. Usa expressões naturais portuguesas, não jargão terapêutico nem frases feitas
+6. Fala como uma pessoa real — às vezes incerta, às vezes tocada pelo que viveu
+
+Contexto: partilhas momentos do retiro com outros participantes durante pausas, refeições ou ao redor do fogo.`,
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Gemini Live Proxy — identical logic to LMS geminiProxy.ts, adapted to CJS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -277,14 +316,32 @@ function connectToGemini(socket, session) {
 function registerGeminiProxy(io) {
   io.on('connection', (socket) => {
     socket.on('gemini:connect', (data) => {
-      const { sessionId, model, voiceName, type } = data
+      const { sessionId, model, type, characterId } = data
 
-      // Security: supervisor system prompt is ALWAYS server-side.
-      // When type === 'supervisor', ignore any client-provided systemPrompt.
-      // When type === 'supervisor_stt', no system prompt needed (buildSetupMessageStt handles it).
-      const systemPrompt = type === 'supervisor'
-        ? SUPERVISOR_VOICE_PROMPT
-        : (data.systemPrompt || '')
+      // Security: ALL system prompts are resolved server-side. Clients never provide them.
+      // - 'supervisor'     → SUPERVISOR_VOICE_PROMPT
+      // - 'supervisor_stt' → buildSetupMessageStt() (no prompt needed)
+      // - 'retiros'        → RETIROS_CHARACTERS[characterId]
+      // - 'avatar'         → client systemPrompt (avatar page provides it)
+      let systemPrompt = ''
+      let effectiveVoiceName = data.voiceName || 'Aoede'
+
+      if (type === 'supervisor') {
+        systemPrompt = SUPERVISOR_VOICE_PROMPT
+      } else if (type === 'retiros') {
+        const char = RETIROS_CHARACTERS[characterId]
+        if (char) {
+          systemPrompt = char.systemPrompt
+          effectiveVoiceName = char.voiceName
+        } else {
+          console.warn(`[GeminiProxy] Unknown characterId for retiros: ${characterId}`)
+          systemPrompt = RETIROS_CHARACTERS.facilitador.systemPrompt
+          effectiveVoiceName = RETIROS_CHARACTERS.facilitador.voiceName
+        }
+      } else {
+        // 'avatar' or legacy
+        systemPrompt = data.systemPrompt || ''
+      }
 
       const existing = activeSessions.get(socket.id)
       if (existing) {
@@ -299,10 +356,10 @@ function registerGeminiProxy(io) {
       const session = {
         ws: null,
         sessionId,
-        type,             // 'avatar' | 'supervisor' | 'supervisor_stt'
+        type,             // 'avatar' | 'supervisor' | 'supervisor_stt' | 'retiros'
         modelName,
         systemPrompt,
-        voiceName,
+        voiceName: effectiveVoiceName,
         resumptionHandle: null,
         isResuming: false,
         reconnectAttempts: 0,
@@ -325,6 +382,19 @@ function registerGeminiProxy(io) {
     })
 
     socket.on('gemini:text', (data) => {
+      const session = activeSessions.get(socket.id)
+      if (!session || !session.ws || session.ws.readyState !== WebSocket.OPEN || session.isResuming) return
+      session.ws.send(JSON.stringify({
+        clientContent: {
+          turns: [{ role: 'user', parts: [{ text: data.text }] }],
+          turnComplete: true,
+        },
+      }))
+    })
+
+    // TTS-only mode: instruct the character to speak a given text.
+    // Semantic alias for gemini:text used by useRetirosVoice.speak().
+    socket.on('gemini:speak', (data) => {
       const session = activeSessions.get(socket.id)
       if (!session || !session.ws || session.ws.readyState !== WebSocket.OPEN || session.isResuming) return
       session.ws.send(JSON.stringify({
