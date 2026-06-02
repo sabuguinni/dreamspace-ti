@@ -19,10 +19,15 @@ interface TurnoResponse {
   intervencao: IntervencaoResult
 }
 
+type SpeakingRole = 'cliente' | 'supervisor' | null
+
+const VOICE_KEY = 'anamnese_voice_enabled'
+
 export function ChatAnamnese({ sessao }: Props) {
   const router = useRouter()
   const avatar = getAnamneseAvatarPublico(sessao.avatar_id)
   const cor = avatar?.cor ?? 'oklch(0.45 0.1 250)'
+  const voz = avatar?.voz ?? 'Kore'
 
   const [turns, setTurns] = useState<TurnoConversa[]>(
     [...(sessao.historico_conversa ?? [])].sort((a, b) => a.turno - b.turno),
@@ -35,6 +40,11 @@ export function ChatAnamnese({ sessao }: Props) {
   const [mostrarConfirmConcluir, setMostrarConfirmConcluir] = useState(false)
   const [mostrarConfirmApagar, setMostrarConfirmApagar] = useState(false)
 
+  // ── Voz ────────────────────────────────────────────────────────────────────
+  const [voiceEnabled, setVoiceEnabled] = useState(false)
+  const [speakingRole, setSpeakingRole] = useState<SpeakingRole>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
   const concluida = sessao.estado === 'concluida' || relatorio !== null
 
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -42,8 +52,79 @@ export function ChatAnamnese({ sessao }: Props) {
   const startRef = useRef<number>(new Date(sessao.created_at).getTime() || Date.now())
 
   useEffect(() => {
+    setVoiceEnabled(localStorage.getItem(VOICE_KEY) === 'true')
+  }, [])
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [turns, pendingTerapeuta, relatorio, isGeneratingReport])
+
+  // Stop audio on unmount
+  useEffect(() => {
+    return () => { audioRef.current?.pause(); audioRef.current = null }
+  }, [])
+
+  // ── Síntese de voz (cliente: Gemini · supervisor: ElevenLabs Hugo) ───────────
+  const speak = useCallback(async (endpoint: string, payload: Record<string, unknown>, role: SpeakingRole) => {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (res.status === 402) {
+        toast.warning('Saldo insuficiente para voz. Recarrega créditos na página Créditos.')
+        setVoiceEnabled(false)
+        localStorage.setItem(VOICE_KEY, 'false')
+        return
+      }
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      // Interrompe qualquer áudio em curso
+      if (audioRef.current) audioRef.current.pause()
+      await new Promise<void>(resolve => {
+        const audio = new Audio(url)
+        audioRef.current = audio
+        setSpeakingRole(role)
+        const finish = () => {
+          URL.revokeObjectURL(url)
+          if (audioRef.current === audio) { audioRef.current = null; setSpeakingRole(null) }
+          resolve()
+        }
+        audio.onended = finish
+        audio.onpause = finish
+        audio.onerror = finish
+        audio.play().catch(finish)
+      })
+    } catch {
+      setSpeakingRole(null)
+    }
+  }, [])
+
+  const speakCliente = useCallback((texto: string) => {
+    if (texto) void speak('/api/anamnese/tts', { text: texto, voice: voz }, 'cliente')
+  }, [speak, voz])
+
+  const speakSupervisor = useCallback((texto: string) => {
+    if (texto) void speak('/api/tts', { text: texto }, 'supervisor')
+  }, [speak])
+
+  const playTurnVoice = useCallback(async (turn: TurnoConversa) => {
+    if (turn.avatar) await speak('/api/anamnese/tts', { text: turn.avatar, voice: voz }, 'cliente')
+    if (turn.supervisor_interveio && turn.intervencao_supervisor) {
+      await speak('/api/tts', { text: turn.intervencao_supervisor }, 'supervisor')
+    }
+  }, [speak, voz])
+
+  const toggleVoice = useCallback(() => {
+    setVoiceEnabled(prev => {
+      const next = !prev
+      localStorage.setItem(VOICE_KEY, String(next))
+      if (!next) { audioRef.current?.pause(); audioRef.current = null; setSpeakingRole(null) }
+      return next
+    })
+  }, [])
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
@@ -68,6 +149,7 @@ export function ChatAnamnese({ sessao }: Props) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = (await res.json()) as TurnoResponse
       setTurns(prev => [...prev, data.turno])
+      if (voiceEnabled) void playTurnVoice(data.turno)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido'
       toast.error(`Não foi possível enviar. ${msg}`)
@@ -76,11 +158,12 @@ export function ChatAnamnese({ sessao }: Props) {
       setPendingTerapeuta(null)
       setIsLoading(false)
     }
-  }, [input, isLoading, concluida, sessao.id])
+  }, [input, isLoading, concluida, sessao.id, voiceEnabled, playTurnVoice])
 
   const handleConcluir = useCallback(async () => {
     setIsGeneratingReport(true)
     setMostrarConfirmConcluir(false)
+    audioRef.current?.pause()
     try {
       const durationMs = Date.now() - startRef.current
       const duracao_minutos = Math.max(1, Math.ceil(durationMs / 60000))
@@ -149,20 +232,38 @@ export function ChatAnamnese({ sessao }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 md:px-5 py-3 border-b shrink-0" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold text-white shrink-0" style={{ background: cor }}>
-              {avatar?.nome?.[0] ?? '?'}
+            <div className="relative w-9 h-9 shrink-0">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold text-white" style={{ background: cor }}>
+                {avatar?.nome?.[0] ?? '?'}
+              </div>
+              {speakingRole === 'cliente' && (
+                <span className="absolute inset-0 rounded-full animate-ping" style={{ background: cor, opacity: 0.4 }} />
+              )}
             </div>
             <div>
               <p className="text-sm font-medium leading-tight" style={{ color: 'var(--foreground)' }}>
                 {avatar?.nome ?? sessao.avatar_id}, {avatar?.idade} anos
               </p>
               <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                {avatar?.area} · Anamnese supervisionada
+                {speakingRole === 'cliente' ? `${avatar?.nome} está a falar…`
+                  : speakingRole === 'supervisor' ? 'Supervisor a falar…'
+                  : `${avatar?.area} · Anamnese supervisionada`}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Toggle voz */}
+            <button
+              type="button"
+              onClick={toggleVoice}
+              className="p-1.5 rounded transition-colors text-base leading-none"
+              style={{ color: voiceEnabled ? cor : 'var(--muted-foreground)' }}
+              title={voiceEnabled ? 'Desligar voz (cliente fala + Supervisor fala)' : 'Ligar voz'}
+            >
+              {voiceEnabled ? '🔊' : '🔇'}
+            </button>
+
             {!concluida && (
               <>
                 <button type="button" onClick={() => setMostrarConfirmApagar(true)} className="p-1.5 rounded transition-colors" style={{ color: 'var(--muted-foreground)' }} title="Apagar sessão">🗑️</button>
@@ -195,20 +296,34 @@ export function ChatAnamnese({ sessao }: Props) {
                   </div>
                 </div>
               )}
-              {/* Avatar */}
+              {/* Avatar / cliente */}
               {turn.avatar && (
-                <div className="flex items-start gap-2.5 max-w-[85%]">
+                <div className="flex items-start gap-2.5 max-w-[85%] group">
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0 mt-1" style={{ background: cor }}>
                     {avatar?.nome?.[0] ?? '?'}
                   </div>
                   <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed" style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}>
                     {turn.avatar}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => speakCliente(turn.avatar)}
+                    className="shrink-0 mt-1 p-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ color: cor }}
+                    title={`Ouvir ${avatar?.nome ?? 'o cliente'}`}
+                  >
+                    🔈
+                  </button>
                 </div>
               )}
               {/* Supervisor */}
               {turn.supervisor_interveio && turn.intervencao_supervisor && turn.tipo_erro && (
-                <BlocoSupervisorAnamnese tipoErro={turn.tipo_erro} intervencao={turn.intervencao_supervisor} />
+                <BlocoSupervisorAnamnese
+                  tipoErro={turn.tipo_erro}
+                  intervencao={turn.intervencao_supervisor}
+                  onPlay={() => speakSupervisor(turn.intervencao_supervisor!)}
+                  isPlaying={speakingRole === 'supervisor'}
+                />
               )}
             </div>
           ))}
@@ -291,6 +406,7 @@ export function ChatAnamnese({ sessao }: Props) {
               </button>
             </div>
             <p className="text-xs mt-1.5 ml-1" style={{ color: 'var(--muted-foreground)' }}>
+              {voiceEnabled ? '🔊 Voz ligada — o cliente e o Supervisor falam. ' : ''}
               O Supervisor intervém quando ficas no manifesto. Enter envia · Shift+Enter nova linha
             </p>
           </div>
