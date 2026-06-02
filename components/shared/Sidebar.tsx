@@ -52,6 +52,20 @@ const NAV = [
     ),
   },
   {
+    href: '/anamnese',
+    label: 'Anamnese',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 2h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
+        <path d="M16 4h2a2 2 0 0 1 2 2v3.5" />
+        <path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6" />
+        <circle cx="17.5" cy="16.5" r="3.5" />
+        <path d="m21 20-1.4-1.4" />
+      </svg>
+    ),
+  },
+  {
     href: '/retiro',
     label: 'Retiro',
     icon: (

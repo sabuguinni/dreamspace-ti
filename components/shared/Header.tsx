@@ -11,6 +11,7 @@ const NAV = [
   { href: '/manual', label: 'Manual' },
   { href: '/supervisor', label: 'Supervisor' },
   { href: '/avatares', label: 'Avatares' },
+  { href: '/anamnese', label: 'Anamnese' },
   { href: '/retiro', label: 'Retiro' },
   { href: '/diario', label: 'Diário' },
 ]
