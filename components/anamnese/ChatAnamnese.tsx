@@ -46,9 +46,11 @@ export function ChatAnamnese({ sessao }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const isSendingRef = useRef(false)
 
-  // Fila de áudio em streaming (chunks do cliente, frase a frase)
-  const audioQueueRef = useRef<string[]>([])
-  const queuePlayingRef = useRef(false)
+  // Áudio do cliente em streaming — Web Audio API (playback gapless, sem new Audio() por chunk)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const nextStartRef = useRef(0)
+  const scheduledRef = useRef(0)
+  const endedRef = useRef(0)
   const streamDoneRef = useRef(false)
   const drainResolveRef = useRef<(() => void) | null>(null)
 
@@ -63,42 +65,60 @@ export function ChatAnamnese({ sessao }: Props) {
   }, [turns, pendingTerapeuta, relatorio, isGeneratingReport, liveUserSpeech])
 
   useEffect(() => {
-    return () => { audioRef.current?.pause(); audioRef.current = null }
+    return () => {
+      audioRef.current?.pause(); audioRef.current = null
+      audioCtxRef.current?.close().catch(() => {}); audioCtxRef.current = null
+    }
   }, [])
 
-  // ── Fila de áudio (cliente, streaming) ───────────────────────────────────────
+  // ── Áudio do cliente (Web Audio API, gapless) ────────────────────────────────
+  const ensureAudioCtx = useCallback(() => {
+    if (!audioCtxRef.current) {
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      audioCtxRef.current = new Ctx()
+    }
+    if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume().catch(() => {})
+    return audioCtxRef.current
+  }, [])
+
+  const closeAudioCtx = useCallback(() => {
+    audioCtxRef.current?.close().catch(() => {})
+    audioCtxRef.current = null
+    nextStartRef.current = 0
+  }, [])
+
   const resolveDrainIfDone = useCallback(() => {
-    if (streamDoneRef.current && !queuePlayingRef.current && audioQueueRef.current.length === 0) {
+    if (streamDoneRef.current && scheduledRef.current === endedRef.current) {
+      setSpeakingRole(prev => (prev === 'cliente' ? null : prev))
       drainResolveRef.current?.()
       drainResolveRef.current = null
     }
   }, [])
 
-  const playNextChunk = useCallback(() => {
-    if (audioQueueRef.current.length === 0) {
-      queuePlayingRef.current = false
-      setSpeakingRole(prev => (prev === 'cliente' ? null : prev))
+  // Descodifica o WAV e AGENDA-o (gapless) na timeline do AudioContext
+  const enqueueChunk = useCallback(async (wavB64: string) => {
+    try {
+      const ctx = ensureAudioCtx()
+      const bin = atob(wavB64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      const audioBuf = await ctx.decodeAudioData(bytes.buffer)
+      const src = ctx.createBufferSource()
+      src.buffer = audioBuf
+      src.connect(ctx.destination)
+      const startAt = Math.max(ctx.currentTime + 0.03, nextStartRef.current)
+      src.start(startAt)
+      nextStartRef.current = startAt + audioBuf.duration
+      scheduledRef.current += 1
+      setSpeakingRole('cliente')
+      src.onended = () => { endedRef.current += 1; resolveDrainIfDone() }
+    } catch {
       resolveDrainIfDone()
-      return
     }
-    queuePlayingRef.current = true
-    setSpeakingRole('cliente')
-    const url = audioQueueRef.current.shift()!
-    const audio = new Audio(url)
-    audioRef.current = audio
-    const next = () => playNextChunk()
-    audio.onended = next
-    audio.onerror = next
-    audio.play().catch(next)
-  }, [resolveDrainIfDone])
-
-  const enqueueChunk = useCallback((dataUrl: string) => {
-    audioQueueRef.current.push(dataUrl)
-    if (!queuePlayingRef.current) playNextChunk()
-  }, [playNextChunk])
+  }, [ensureAudioCtx, resolveDrainIfDone])
 
   const waitForClienteDrain = useCallback(() => new Promise<void>(resolve => {
-    if (streamDoneRef.current && !queuePlayingRef.current && audioQueueRef.current.length === 0) {
+    if (streamDoneRef.current && scheduledRef.current === endedRef.current) {
       resolve()
       return
     }
@@ -186,9 +206,10 @@ export function ChatAnamnese({ sessao }: Props) {
     if (!msg || isLoading || concluida) return
     setIsLoading(true)
 
-    // Reset da fila de áudio
-    audioQueueRef.current = []
-    queuePlayingRef.current = false
+    // Reset do estado de áudio (Web Audio)
+    nextStartRef.current = 0
+    scheduledRef.current = 0
+    endedRef.current = 0
     streamDoneRef.current = false
     drainResolveRef.current = null
 
@@ -229,7 +250,7 @@ export function ChatAnamnese({ sessao }: Props) {
             const d = evt.delta
             setTurns(prev => prev.map(t => t.turno === turnoFinal ? { ...t, avatar: (t.avatar || '') + d } : t))
           } else if (evt.type === 'audio' && evt.audio) {
-            enqueueChunk('data:audio/wav;base64,' + evt.audio)
+            await enqueueChunk(evt.audio)
           } else if (evt.type === 'turno' && typeof evt.turno === 'number') {
             const novo = evt.turno
             const txt = evt.avatar ?? ''
@@ -320,8 +341,9 @@ export function ChatAnamnese({ sessao }: Props) {
     setVoiceErro('')
     setLiveUserSpeech('')
     isSendingRef.current = false
+    ensureAudioCtx() // cria/retoma o AudioContext dentro do gesto (autoplay policy)
     gemini.connect()
-  }, [gemini])
+  }, [gemini, ensureAudioCtx])
 
   const handleManualVoiceSend = useCallback(() => {
     const text = liveUserSpeech.trim()
@@ -335,11 +357,12 @@ export function ChatAnamnese({ sessao }: Props) {
       localStorage.setItem(VOICE_KEY, String(next))
       if (!next) {
         audioRef.current?.pause(); audioRef.current = null; setSpeakingRole(null)
+        closeAudioCtx()
         gemini.disconnect(); setLiveUserSpeech('')
       }
       return next
     })
-  }, [gemini])
+  }, [gemini, closeAudioCtx])
 
   const replayCliente = useCallback((texto: string) => {
     if (!texto) return
@@ -357,6 +380,7 @@ export function ChatAnamnese({ sessao }: Props) {
     setIsGeneratingReport(true)
     setMostrarConfirmConcluir(false)
     audioRef.current?.pause()
+    closeAudioCtx()
     gemini.disconnect()
     try {
       const durationMs = Date.now() - startRef.current
@@ -379,9 +403,10 @@ export function ChatAnamnese({ sessao }: Props) {
     } finally {
       setIsGeneratingReport(false)
     }
-  }, [sessao.id, gemini])
+  }, [sessao.id, gemini, closeAudioCtx])
 
   const handleApagar = useCallback(async () => {
+    closeAudioCtx()
     gemini.disconnect()
     try {
       const res = await fetch(`/api/anamnese/sessao/${sessao.id}`, { method: 'DELETE' })
@@ -396,7 +421,7 @@ export function ChatAnamnese({ sessao }: Props) {
       toast.error('Erro ao apagar.')
       setMostrarConfirmApagar(false)
     }
-  }, [sessao.id, router, gemini])
+  }, [sessao.id, router, gemini, closeAudioCtx])
 
   const temTurnosReais = turns.some(t => t.turno > 0)
   const statusVoz =

@@ -43,18 +43,25 @@ function buildAvatarMessages(historico: TurnoConversa[], novaMensagem: string): 
   return msgs
 }
 
-/** Extrai frases completas (terminadas em . ! ? …) do buffer; devolve o resto incompleto. */
-function extractSentences(buffer: string): { sentences: string[]; rest: string } {
-  const sentences: string[] = []
-  let rest = buffer
-  const re = /^([\s\S]*?[.!?…]+)(\s+)([\s\S]*)$/
-  let m: RegExpMatchArray | null
-  while ((m = rest.match(re)) !== null) {
-    const s = m[1].trim()
-    rest = m[3]
-    if (s) sentences.push(s)
+/**
+ * Devolve o 1º chunk para TTS quando o buffer já tem contexto suficiente:
+ * a primeira frase completa (fim em . ! ? …) cujo fim cai em ≥ `min` caracteres.
+ * Devolve null se ainda não há contexto suficiente (continua a acumular).
+ * Evita sintetizar fragmentos curtos isolados (que soam "soletrados").
+ */
+function firstChunkCut(buffer: string, min: number): { chunk: string; rest: string } | null {
+  if (buffer.length < min) return null
+  const re = /[.!?…]/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(buffer)) !== null) {
+    if (m.index + 1 >= min) {
+      let end = m.index + 1
+      // inclui pontuação/aspas/parênteses consecutivos
+      while (end < buffer.length && /[.!?…"')\]]/.test(buffer[end])) end++
+      return { chunk: buffer.slice(0, end).trim(), rest: buffer.slice(end) }
+    }
   }
-  return { sentences, rest }
+  return null
 }
 
 export async function POST(req: Request) {
@@ -93,8 +100,10 @@ export async function POST(req: Request) {
     async start(controller) {
       const send = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`))
 
+      const MIN_FIRST_CHARS = 80
       let fullText = ''
       let buffer = ''
+      let firstChunkSent = false
       try {
         const claudeStream = anthropic.messages.stream({
           model: 'claude-sonnet-4-6',
@@ -110,19 +119,24 @@ export async function POST(req: Request) {
             fullText += delta
             buffer += delta
             send({ type: 'text', delta })
-            const { sentences, rest } = extractSentences(buffer)
-            buffer = rest
-            for (const s of sentences) {
-              const wav = await synthesizeGeminiWav(s, voice)
-              if (wav) send({ type: 'audio', audio: wav.toString('base64') })
+            // 1º chunk: só quando há ≥80 chars terminados numa frase natural (boa prosódia)
+            if (!firstChunkSent) {
+              const cut = firstChunkCut(buffer, MIN_FIRST_CHARS)
+              if (cut) {
+                const wav = await synthesizeGeminiWav(cut.chunk, voice)
+                if (wav) send({ type: 'audio', audio: wav.toString('base64') })
+                buffer = cut.rest
+                firstChunkSent = true
+              }
             }
+            // Depois do 1º chunk NÃO sintetiza por frase — acumula o resto p/ uma só chamada
           }
         }
 
-        // Sintetiza a última frase parcial (se houver)
-        const tail = buffer.trim()
-        if (tail) {
-          const wav = await synthesizeGeminiWav(tail, voice)
+        // Resto da resposta (ou tudo, se a resposta foi curta) numa só chamada TTS
+        const resto = buffer.trim()
+        if (resto) {
+          const wav = await synthesizeGeminiWav(resto, voice)
           if (wav) send({ type: 'audio', audio: wav.toString('base64') })
         }
 
