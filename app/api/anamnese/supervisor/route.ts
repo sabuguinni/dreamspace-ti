@@ -44,20 +44,22 @@ export async function POST(req: Request) {
 
   const historico: TurnoConversa[] = Array.isArray(sessao.historico_conversa) ? sessao.historico_conversa : []
   const alvo = historico.find(t => t.turno === turno)
-  if (!alvo || !alvo.terapeuta || !alvo.avatar) {
+  if (!alvo || !alvo.terapeuta) {
     return NextResponse.json({ intervencao: { intervir: false } })
   }
 
-  // Mesmos inputs que o fluxo original: contexto = turnos reais ANTES deste;
-  // par actual = (terapeuta, avatar) do turno alvo.
-  const historicoReal = historico.filter(t => t.turno > 0 && t.turno < turno)
+  // Avaliamos a PERGUNTA do terapeuta como resposta à mensagem ANTERIOR do avatar
+  // (a abertura/turno 0, ou o turno-1) — NUNCA a resposta posterior (alvo.avatar).
+  // Contexto = todos os turnos ATÉ ao anterior, incluindo a abertura (turno 0).
+  const contexto = historico.filter(t => t.turno < turno).sort((a, b) => a.turno - b.turno)
+  const mensagemAnteriorAvatar = historico.find(t => t.turno === turno - 1)?.avatar ?? ''
   let intervencao: IntervencaoResult = { intervir: false }
   try {
     intervencao = await analisarTurno({
       avatar,
-      historico: historicoReal,
-      ultimaMensagemTerapeuta: alvo.terapeuta,
-      respostaAvatar: alvo.avatar,
+      historico: contexto,
+      mensagemAnteriorAvatar,
+      perguntaTerapeuta: alvo.terapeuta,
     })
   } catch (err) {
     console.error('[anamnese/supervisor] error:', err)

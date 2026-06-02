@@ -42,10 +42,10 @@ function parseJson<T>(raw: string): T | null {
 export async function analisarTurno(params: {
   avatar: AnamneseAvatar
   historico: TurnoConversa[]
-  ultimaMensagemTerapeuta: string
-  respostaAvatar: string
+  mensagemAnteriorAvatar: string
+  perguntaTerapeuta: string
 }): Promise<IntervencaoResult> {
-  const { avatar, historico, ultimaMensagemTerapeuta, respostaAvatar } = params
+  const { avatar, historico, mensagemAnteriorAvatar, perguntaTerapeuta } = params
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -58,7 +58,7 @@ export async function analisarTurno(params: {
       messages: [
         {
           role: 'user',
-          content: buildSupervisorTurnMessage(historico, ultimaMensagemTerapeuta, respostaAvatar),
+          content: buildSupervisorTurnMessage(historico, mensagemAnteriorAvatar, perguntaTerapeuta),
         },
       ],
     })

@@ -32,7 +32,10 @@ interface GeminiPart {
 /** Sintetiza `text` para WAV com a voz Gemini `voice`. Devolve null em falha. */
 export async function synthesizeGeminiWav(text: string, voice: string): Promise<Buffer | null> {
   const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey || !text.trim()) return null
+  // Remove acções/didascálias entre asteriscos (*respira fundo*): o Gemini TTS recusa
+  // chunks sem fala real (erro 400 "Model tried to generate text..."). Só sintetiza a fala.
+  const speakable = text.replace(/\*[^*]*\*/g, ' ').replace(/\*/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!apiKey || !speakable) return null
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent`,
@@ -40,7 +43,7 @@ export async function synthesizeGeminiWav(text: string, voice: string): Promise<
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
-          contents: [{ parts: [{ text }] }],
+          contents: [{ parts: [{ text: speakable }] }],
           generationConfig: {
             responseModalities: ['AUDIO'],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },

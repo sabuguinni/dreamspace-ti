@@ -101,36 +101,40 @@ REGRA DE INTERVENÇÃO:
 PERFIL LATENTE DO AVATAR NESTA SESSÃO (confidencial — só para ti):
 ${latentes}
 
-Analisa o par (último turno do terapeuta + resposta do avatar) à luz do histórico e decide.
+Avalia se a PERGUNTA/INTERVENÇÃO do terapeuta (a última) é adequada como resposta à MENSAGEM ANTERIOR do avatar, à luz do histórico. Avalias sempre o TERAPEUTA — nunca a resposta do avatar. Se o terapeuta ficou no manifesto, validou a narrativa como facto, ou fechou uma porta que o cliente abriu na mensagem anterior, intervéns.
 Responde APENAS com JSON válido, sem markdown, sem texto adicional:
 - Se há erro: {"intervir": true, "tipo_erro": "<um dos tipos acima em snake_case>", "intervencao": "<2-4 frases>"}
 - Se não há erro: {"intervir": false}`
 }
 
-/** Constrói a mensagem de utilizador (turno) para o Supervisor analisar. */
+/** Constrói a mensagem de utilizador (turno) para o Supervisor analisar.
+ *  Avalia a PERGUNTA do terapeuta como resposta à mensagem ANTERIOR do avatar. */
 export function buildSupervisorTurnMessage(
   historico: TurnoConversa[],
-  ultimaMensagemTerapeuta: string,
-  respostaAvatar: string,
+  mensagemAnteriorAvatar: string,
+  perguntaTerapeuta: string,
 ): string {
   const historicoTexto =
     historico.length === 0
       ? '(início da sessão — ainda sem turnos anteriores)'
       : historico
           .map(t => {
+            if (t.turno === 0) return `Turno 0 (abertura do cliente):\n  Avatar: ${t.avatar}`
             const sup = t.supervisor_interveio ? `\n  [Supervisor interveio: ${t.tipo_erro}]` : ''
-            return `Turno ${t.turno}:\n  Terapeuta: ${t.terapeuta}\n  ${'Avatar'}: ${t.avatar}${sup}`
+            return `Turno ${t.turno}:\n  Terapeuta: ${t.terapeuta}\n  Avatar: ${t.avatar}${sup}`
           })
           .join('\n\n')
 
-  return `HISTÓRICO DA CONVERSA:
+  return `HISTÓRICO DA CONVERSA (inclui a abertura do cliente, turno 0):
 ${historicoTexto}
 
-ÚLTIMA MENSAGEM DO TERAPEUTA:
-${ultimaMensagemTerapeuta}
+O PAR A AVALIAR — a pergunta/intervenção do terapeuta é uma RESPOSTA à mensagem anterior do avatar:
 
-RESPOSTA DO AVATAR À ÚLTIMA MENSAGEM:
-${respostaAvatar}`
+MENSAGEM ANTERIOR DO AVATAR (o que o cliente acabou de dizer, e a que o terapeuta responde):
+${mensagemAnteriorAvatar || '(início da sessão — o terapeuta abriu a conversa)'}
+
+PERGUNTA/INTERVENÇÃO DO TERAPEUTA A AVALIAR:
+${perguntaTerapeuta}`
 }
 
 // ─── Nota pedagógica final ──────────────────────────────────────────────────────
