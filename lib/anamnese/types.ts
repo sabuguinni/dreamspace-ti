@@ -76,6 +76,8 @@ export interface AnamneseAvatar {
   nome: string
   idade: number
   area: string
+  /** Género — concordância PT-PT no system prompt (confus[a/o], etc.). */
+  genero: 'f' | 'm'
   /** Resistências naturais do perfil — injectadas no system prompt do avatar. */
   resistencias: string
   /** Afirmações que o avatar pode usar naturalmente (conteúdo manifesto). */
