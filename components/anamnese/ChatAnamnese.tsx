@@ -221,9 +221,8 @@ export function ChatAnamnese({ sessao }: Props) {
 
     const tempTurno = turns.reduce((m, t) => Math.max(m, t.turno), 0) + 1
     let turnoFinal = tempTurno
-    let firstAudio = true
     setStreamingTurno(tempTurno)
-    setPensandoTurno(tempTurno) // "[Nome] a pensar…" até o áudio começar
+    setPensandoTurno(tempTurno) // "[Nome] a pensar…" até chegar o texto processado (evento 'turno')
     setTurns(prev => [...prev, { turno: tempTurno, timestamp: '', terapeuta: msg, avatar: '', supervisor_interveio: false }])
 
     let supervisorPromise: Promise<{ intervencao?: IntervencaoResult } | null> = Promise.resolve(null)
@@ -254,17 +253,16 @@ export function ChatAnamnese({ sessao }: Props) {
           if (!line.startsWith('data: ')) continue
           let evt: { type: string; delta?: string; audio?: string; turno?: number; avatar?: string; error?: string }
           try { evt = JSON.parse(line.slice(6)) } catch { continue }
-          if (evt.type === 'text' && evt.delta) {
-            const d = evt.delta
-            setTurns(prev => prev.map(t => t.turno === turnoFinal ? { ...t, avatar: (t.avatar || '') + d } : t))
-          } else if (evt.type === 'audio' && evt.audio) {
-            if (firstAudio) { setPensandoTurno(null); firstAudio = false } // áudio começou → mostra o texto real
+          // NOTA: ignoramos os deltas 'text' (texto cru, possível PT-BR). O texto só
+          // aparece no evento 'turno', já passado pelo enforcePtPt (cleanText).
+          if (evt.type === 'audio' && evt.audio) {
             await enqueueChunk(evt.audio)
           } else if (evt.type === 'turno' && typeof evt.turno === 'number') {
             const novo = evt.turno
             const txt = evt.avatar ?? ''
             setTurns(prev => prev.map(t => t.turno === turnoFinal ? { ...t, turno: novo, avatar: txt } : t))
             turnoFinal = novo
+            setPensandoTurno(null) // cleanText chegou → esconde "a pensar…" e mostra o texto processado
             setSupervisorPensandoTurno(novo) // "Supervisor a pensar…" no bloco âmbar
             supervisorPromise = fetch('/api/anamnese/supervisor', {
               method: 'POST',

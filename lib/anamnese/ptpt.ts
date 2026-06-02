@@ -26,10 +26,20 @@ const PAIRS: Array<[string, string]> = [
   ['vindo', 'a vir'],
   ['falando', 'a falar'],
   ['pensando', 'a pensar'],
+  // vocabulário PT-BR → PT-PT
+  ['a gente', 'nós'],
+  ['cadê', 'onde está'],
+  ['legal', 'fixe'],
+  ['bacana', 'fixe'],
+  ['tem que', 'tem de'],
+  ['cara', 'amigo'],
+  ['massa', 'óptimo'],
 ]
 
 function buildRe(word: string): RegExp {
-  return new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, 'giu')
+  // Espaços no termo → \s+ (apanha "a  gente", "tem\nque"); inócuo p/ termos de 1 palavra.
+  const body = word.replace(/ /g, '\\s+')
+  return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, 'giu')
 }
 
 const COMPILED: Array<[RegExp, string]> = PAIRS.map(([w, r]) => [buildRe(w), r])
