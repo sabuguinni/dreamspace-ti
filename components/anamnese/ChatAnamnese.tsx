@@ -52,8 +52,9 @@ export function ChatAnamnese({ sessao }: Props) {
   const startRef = useRef<number>(new Date(sessao.created_at).getTime() || Date.now())
 
   useEffect(() => {
-    setVoiceEnabled(localStorage.getItem(VOICE_KEY) === 'true')
-  }, [])
+    // Sessão criada em modo voz liga o 🔊 automaticamente; localStorage é override manual
+    setVoiceEnabled(sessao.modo === 'voz' || localStorage.getItem(VOICE_KEY) === 'true')
+  }, [sessao.modo])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })

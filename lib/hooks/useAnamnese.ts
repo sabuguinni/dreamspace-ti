@@ -62,11 +62,11 @@ export interface CriarAnamneseResult {
 export function useCriarSessaoAnamnese() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (avatar_id: string): Promise<SessaoAnamnese> => {
+    mutationFn: async (input: { avatar_id: string; modo: 'escrito' | 'voz' }): Promise<SessaoAnamnese> => {
       const res = await fetch('/api/anamnese/sessao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatar_id }),
+        body: JSON.stringify(input),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))

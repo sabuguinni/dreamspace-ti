@@ -11,6 +11,7 @@ import { z } from 'zod'
 
 const CreateSchema = z.object({
   avatar_id: z.string().min(1).max(40),
+  modo: z.enum(['escrito', 'voz']).default('escrito'),
 })
 
 // GET /api/anamnese/sessao — lista as sessões de anamnese do utilizador
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
       historico_conversa: [aberturaTurno],
       intervencoes_supervisor: [],
       estado: 'em_curso',
-      modo: 'escrito',
+      modo: parsed.data.modo,
     })
     .select()
     .single()
