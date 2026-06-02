@@ -295,8 +295,9 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
         const inputTranscription = content.inputTranscription as { text?: string } | undefined
         if (inputTranscription?.text) {
           if (isSttMode) {
-            // Accumulate into STT buffer; also surface via onTranscription for live display
-            sttBufferRef.current += inputTranscription.text + ' '
+            // Acumula a transcrição. Os deltas do Gemini já trazem os espaços correctos —
+            // NÃO acrescentar ' ' (fragmentava palavras: "Entã o , quan tas").
+            sttBufferRef.current += inputTranscription.text
             o.onTranscription(inputTranscription.text, true)
           } else {
             o.onTranscription(inputTranscription.text, true)
