@@ -9,6 +9,7 @@ import { getAnamneseAvatarPublico } from '@/lib/anamnese/avataresPublicos'
 import { buildAvatarSystemPrompt, AVATAR_ABERTURA_TRIGGER } from '@/lib/anamnese/prompts'
 import { synthesizeGeminiWav } from '@/lib/anamnese/geminiTts'
 import { enforcePtPt } from '@/lib/anamnese/ptpt'
+import { rewritePtPt } from '@/lib/anamnese/ptptRewrite'
 import type { SessaoAnamnese, TurnoConversa } from '@/lib/anamnese/types'
 import { z } from 'zod'
 
@@ -109,6 +110,7 @@ export async function POST(req: Request) {
       let fullText = ''
       let buffer = ''
       let firstChunkSent = false
+      let spokenText = '' // texto realmente sintetizado/mostrado (PT-PT já reescrito por pedaço)
       try {
         const claudeStream = anthropic.messages.stream({
           model: 'claude-sonnet-4-6',
@@ -123,12 +125,14 @@ export async function POST(req: Request) {
             const delta = event.delta.text
             fullText += delta
             buffer += delta
-            send({ type: 'text', delta })
             // 1º chunk: só quando há ≥80 chars terminados numa frase natural (boa prosódia)
             if (!firstChunkSent) {
               const cut = firstChunkCut(buffer, MIN_FIRST_CHARS)
               if (cut) {
-                const wav = await synthesizeGeminiWav(limpar(cut.chunk), voice)
+                // 1ª frase: limpar (vocab + lista) → 2º passe LLM PT-PT → TTS
+                const pt = await rewritePtPt(limpar(cut.chunk))
+                spokenText += pt
+                const wav = await synthesizeGeminiWav(pt, voice)
                 if (wav) send({ type: 'audio', audio: wav.toString('base64') })
                 buffer = cut.rest
                 firstChunkSent = true
@@ -141,11 +145,14 @@ export async function POST(req: Request) {
         // Resto da resposta (ou tudo, se a resposta foi curta) numa só chamada TTS
         const resto = buffer.trim()
         if (resto) {
-          const wav = await synthesizeGeminiWav(limpar(resto), voice)
+          const pt = await rewritePtPt(limpar(resto))
+          spokenText += (spokenText ? ' ' : '') + pt
+          const wav = await synthesizeGeminiWav(pt, voice)
           if (wav) send({ type: 'audio', audio: wav.toString('base64') })
         }
 
-        const cleanText = limpar(fullText)
+        // O balão mostra exactamente o que foi falado (PT-PT reescrito), não os deltas crus
+        const cleanText = spokenText.trim() || limpar(fullText)
 
         // Persiste o turno do avatar (supervisor corre depois, em /api/anamnese/supervisor)
         const proximoTurno = historico.reduce((max, t) => Math.max(max, t.turno), 0) + 1

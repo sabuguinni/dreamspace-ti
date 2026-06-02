@@ -130,7 +130,7 @@ export function ChatAnamnese({ sessao }: Props) {
   }), [])
 
   // ── TTS pontual (replays + voz do Supervisor) ────────────────────────────────
-  const speak = useCallback(async (endpoint: string, payload: Record<string, unknown>, role: SpeakingRole) => {
+  const speak = useCallback(async (endpoint: string, payload: Record<string, unknown>, role: SpeakingRole, onStart?: () => void) => {
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -154,6 +154,8 @@ export function ChatAnamnese({ sessao }: Props) {
           if (audioRef.current === audio) { audioRef.current = null; setSpeakingRole(null) }
           resolve()
         }
+        let started = false
+        audio.onplaying = () => { if (!started) { started = true; onStart?.() } } // texto do Supervisor sincronizado com o início real da fala
         audio.onended = finish
         audio.onpause = finish
         audio.onerror = finish
@@ -294,9 +296,16 @@ export function ChatAnamnese({ sessao }: Props) {
     if (intervencao?.intervir && intervencao.intervencao && intervencao.tipo_erro) {
       const tipoErro = intervencao.tipo_erro
       const texto = intervencao.intervencao
-      setTurns(prev => prev.map(t => t.turno === turnoFinal
-        ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto } : t))
-      await speak('/api/tts', { text: texto }, 'supervisor')
+      // Mostra o texto da intervenção EXACTAMENTE quando o áudio do Supervisor começa a tocar
+      let mostrado = false
+      const mostrarTexto = () => {
+        if (mostrado) return
+        mostrado = true
+        setTurns(prev => prev.map(t => t.turno === turnoFinal
+          ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto } : t))
+      }
+      await speak('/api/tts', { text: texto }, 'supervisor', mostrarTexto)
+      mostrarTexto() // fallback: se o áudio falhar, garante que o texto aparece à mesma
     }
   }, [isLoading, concluida, sessao.id, turns, enqueueChunk, resolveDrainIfDone, waitForClienteDrain, speak])
 
