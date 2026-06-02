@@ -47,6 +47,7 @@ export function ChatAnamnese({ sessao }: Props) {
   const [supervisorPensandoTurno, setSupervisorPensandoTurno] = useState<number | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const isSendingRef = useRef(false)
+  const autoStartedRef = useRef(false) // arranca o mic uma só vez em modo voz
 
   // Áudio do cliente em streaming — Web Audio API (playback gapless, sem new Audio() por chunk)
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -354,6 +355,16 @@ export function ChatAnamnese({ sessao }: Props) {
     ensureAudioCtx() // cria/retoma o AudioContext dentro do gesto (autoplay policy)
     gemini.connect()
   }, [gemini, ensureAudioCtx])
+
+  // Modo voz: arranca o microfone automaticamente no mount (aproveita o gesto de criação da sessão).
+  // Se o browser bloquear (sem gesto/permissão), o hook cai em 'error' → botão "Tentar novamente".
+  useEffect(() => {
+    if (autoStartedRef.current) return
+    if (sessao.modo === 'voz' && voiceEnabled && !concluida && gemini.state === 'idle') {
+      autoStartedRef.current = true
+      handleStartVoice()
+    }
+  }, [voiceEnabled, concluida, gemini.state, handleStartVoice, sessao.modo])
 
   const handleManualVoiceSend = useCallback(() => {
     const text = liveUserSpeech.trim()

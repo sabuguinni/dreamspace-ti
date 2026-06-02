@@ -8,6 +8,7 @@ import { getAnamneseAvatar } from '@/lib/anamnese/narrativas'
 import { getAnamneseAvatarPublico } from '@/lib/anamnese/avataresPublicos'
 import { buildAvatarSystemPrompt, AVATAR_ABERTURA_TRIGGER } from '@/lib/anamnese/prompts'
 import { synthesizeGeminiWav } from '@/lib/anamnese/geminiTts'
+import { enforcePtPt } from '@/lib/anamnese/ptpt'
 import type { SessaoAnamnese, TurnoConversa } from '@/lib/anamnese/types'
 import { z } from 'zod'
 
@@ -90,7 +91,11 @@ export async function POST(req: Request) {
   const avatar = getAnamneseAvatar(sessao.avatar_id)
   if (!avatar) return NextResponse.json({ error: 'Avatar não encontrado' }, { status: 404 })
 
-  const voice = getAnamneseAvatarPublico(avatar.id)?.voz ?? 'Kore'
+  const pub = getAnamneseAvatarPublico(avatar.id)
+  const voice = pub?.voz ?? 'Kore'
+  const feminino = pub?.genero === 'f'
+  // Limpa o texto: vocabulário (não-clínico) + PT-PT (sem brasileirismos). Antes do TTS e do bloco escrito.
+  const limpar = (t: string) => enforcePtPt(enforceVocabulary(t).texto, { feminino })
   const historico: TurnoConversa[] = Array.isArray(sessao.historico_conversa) ? sessao.historico_conversa : []
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -123,7 +128,7 @@ export async function POST(req: Request) {
             if (!firstChunkSent) {
               const cut = firstChunkCut(buffer, MIN_FIRST_CHARS)
               if (cut) {
-                const wav = await synthesizeGeminiWav(cut.chunk, voice)
+                const wav = await synthesizeGeminiWav(limpar(cut.chunk), voice)
                 if (wav) send({ type: 'audio', audio: wav.toString('base64') })
                 buffer = cut.rest
                 firstChunkSent = true
@@ -136,11 +141,11 @@ export async function POST(req: Request) {
         // Resto da resposta (ou tudo, se a resposta foi curta) numa só chamada TTS
         const resto = buffer.trim()
         if (resto) {
-          const wav = await synthesizeGeminiWav(resto, voice)
+          const wav = await synthesizeGeminiWav(limpar(resto), voice)
           if (wav) send({ type: 'audio', audio: wav.toString('base64') })
         }
 
-        const cleanText = enforceVocabulary(fullText).texto
+        const cleanText = limpar(fullText)
 
         // Persiste o turno do avatar (supervisor corre depois, em /api/anamnese/supervisor)
         const proximoTurno = historico.reduce((max, t) => Math.max(max, t.turno), 0) + 1
