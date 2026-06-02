@@ -161,12 +161,12 @@ function buildSetupMessageStt(resumptionHandle) {
       parts: [{ text: 'Responde sempre com apenas "Hmm." independentemente do que for dito.' }],
     },
     inputAudioTranscription: {},
-    // VAD afinado para fala terapêutica (pausas mais longas que comandos) — evita cortar a meio da frase
+    // VAD afinado para fala terapêutica — silêncio de 1s (mais responsivo) + botão "enviar" manual no cliente
     realtimeInputConfig: {
       automaticActivityDetection: {
         endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
         prefixPaddingMs: 300,
-        silenceDurationMs: 2200,
+        silenceDurationMs: 1000,
       },
     },
     contextWindowCompression: { slidingWindow: {} },

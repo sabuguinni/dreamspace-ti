@@ -36,16 +36,21 @@ export function ChatAnamnese({ sessao }: Props) {
   const [mostrarConfirmApagar, setMostrarConfirmApagar] = useState(false)
 
   // ── Voz ────────────────────────────────────────────────────────────────────
-  // Inicializador lazy: sessão criada em modo voz abre logo em voz (sem flash de texto);
-  // localStorage funciona como override manual.
   const [voiceEnabled, setVoiceEnabled] = useState(
     () => sessao.modo === 'voz' || (typeof window !== 'undefined' && localStorage.getItem(VOICE_KEY) === 'true'),
   )
   const [speakingRole, setSpeakingRole] = useState<SpeakingRole>(null)
   const [liveUserSpeech, setLiveUserSpeech] = useState('')
   const [voiceErro, setVoiceErro] = useState('')
+  const [streamingTurno, setStreamingTurno] = useState<number | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const isSendingRef = useRef(false) // debounce: VAD + botão manual
+  const isSendingRef = useRef(false)
+
+  // Fila de áudio em streaming (chunks do cliente, frase a frase)
+  const audioQueueRef = useRef<string[]>([])
+  const queuePlayingRef = useRef(false)
+  const streamDoneRef = useRef(false)
+  const drainResolveRef = useRef<(() => void) | null>(null)
 
   const concluida = sessao.estado === 'concluida' || relatorio !== null
 
@@ -61,7 +66,46 @@ export function ChatAnamnese({ sessao }: Props) {
     return () => { audioRef.current?.pause(); audioRef.current = null }
   }, [])
 
-  // ── Síntese de voz (cliente: Gemini · supervisor: ElevenLabs Hugo) ───────────
+  // ── Fila de áudio (cliente, streaming) ───────────────────────────────────────
+  const resolveDrainIfDone = useCallback(() => {
+    if (streamDoneRef.current && !queuePlayingRef.current && audioQueueRef.current.length === 0) {
+      drainResolveRef.current?.()
+      drainResolveRef.current = null
+    }
+  }, [])
+
+  const playNextChunk = useCallback(() => {
+    if (audioQueueRef.current.length === 0) {
+      queuePlayingRef.current = false
+      setSpeakingRole(prev => (prev === 'cliente' ? null : prev))
+      resolveDrainIfDone()
+      return
+    }
+    queuePlayingRef.current = true
+    setSpeakingRole('cliente')
+    const url = audioQueueRef.current.shift()!
+    const audio = new Audio(url)
+    audioRef.current = audio
+    const next = () => playNextChunk()
+    audio.onended = next
+    audio.onerror = next
+    audio.play().catch(next)
+  }, [resolveDrainIfDone])
+
+  const enqueueChunk = useCallback((dataUrl: string) => {
+    audioQueueRef.current.push(dataUrl)
+    if (!queuePlayingRef.current) playNextChunk()
+  }, [playNextChunk])
+
+  const waitForClienteDrain = useCallback(() => new Promise<void>(resolve => {
+    if (streamDoneRef.current && !queuePlayingRef.current && audioQueueRef.current.length === 0) {
+      resolve()
+      return
+    }
+    drainResolveRef.current = resolve
+  }), [])
+
+  // ── TTS pontual (replays + voz do Supervisor) ────────────────────────────────
   const speak = useCallback(async (endpoint: string, payload: Record<string, unknown>, role: SpeakingRole) => {
     try {
       const res = await fetch(endpoint, {
@@ -96,8 +140,7 @@ export function ChatAnamnese({ sessao }: Props) {
     }
   }, [])
 
-  // ── Submeter um turno (texto escrito OU transcrição de voz) ──────────────────
-  // NÃO altera a lógica de /api/anamnese/turno — só lhe entrega a mensagem.
+  // ── Modo TEXTO: turno + Supervisor (sem áudio) ───────────────────────────────
   const submitTurn = useCallback(async (text: string) => {
     const msg = text.trim()
     if (!msg || isLoading || concluida) return
@@ -105,88 +148,155 @@ export function ChatAnamnese({ sessao }: Props) {
     setIsLoading(true)
     let turno: TurnoConversa | null = null
     try {
-      // FASE 1 — resposta do avatar (rápida; o Supervisor NÃO bloqueia aqui)
       const res = await fetch('/api/anamnese/turno', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessao_id: sessao.id, mensagem: msg }),
+      })
+      if (res.status === 402) { toast.warning('Saldo insuficiente. Recarrega créditos na página Créditos.'); return }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = (await res.json()) as { turno: TurnoConversa; avatar: string }
+      turno = data.turno
+      setTurns(prev => [...prev, data.turno])
+    } catch (err) {
+      toast.error(`Não foi possível enviar. ${err instanceof Error ? err.message : ''}`)
+    } finally {
+      setPendingTerapeuta(null)
+      setIsLoading(false)
+    }
+    if (!turno) return
+    const turnoNum = turno.turno
+    const sup = await fetch('/api/anamnese/supervisor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessao_id: sessao.id, turno: turnoNum }),
+    }).then(r => (r.ok ? (r.json() as Promise<{ intervencao?: IntervencaoResult }>) : null)).catch(() => null)
+    const intervencao = sup?.intervencao
+    if (intervencao?.intervir && intervencao.intervencao && intervencao.tipo_erro) {
+      const tipoErro = intervencao.tipo_erro
+      const texto = intervencao.intervencao
+      setTurns(prev => prev.map(t => t.turno === turnoNum
+        ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto } : t))
+    }
+  }, [isLoading, concluida, sessao.id])
+
+  // ── Modo VOZ: pipeline em streaming (Claude stream → TTS por frase → áudio) ───
+  const submitVoiceTurn = useCallback(async (text: string) => {
+    const msg = text.trim()
+    if (!msg || isLoading || concluida) return
+    setIsLoading(true)
+
+    // Reset da fila de áudio
+    audioQueueRef.current = []
+    queuePlayingRef.current = false
+    streamDoneRef.current = false
+    drainResolveRef.current = null
+
+    const tempTurno = turns.reduce((m, t) => Math.max(m, t.turno), 0) + 1
+    let turnoFinal = tempTurno
+    setStreamingTurno(tempTurno)
+    setTurns(prev => [...prev, { turno: tempTurno, timestamp: '', terapeuta: msg, avatar: '', supervisor_interveio: false }])
+
+    let supervisorPromise: Promise<{ intervencao?: IntervencaoResult } | null> = Promise.resolve(null)
+
+    try {
+      const res = await fetch('/api/anamnese/voz-turno', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessao_id: sessao.id, mensagem: msg }),
       })
       if (res.status === 402) {
         toast.warning('Saldo insuficiente. Recarrega créditos na página Créditos.')
+        setTurns(prev => prev.filter(t => t.turno !== tempTurno))
         return
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = (await res.json()) as { turno: TurnoConversa; avatar: string }
-      turno = data.turno
-      setTurns(prev => [...prev, data.turno])
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          let evt: { type: string; delta?: string; audio?: string; turno?: number; avatar?: string; error?: string }
+          try { evt = JSON.parse(line.slice(6)) } catch { continue }
+          if (evt.type === 'text' && evt.delta) {
+            const d = evt.delta
+            setTurns(prev => prev.map(t => t.turno === turnoFinal ? { ...t, avatar: (t.avatar || '') + d } : t))
+          } else if (evt.type === 'audio' && evt.audio) {
+            enqueueChunk('data:audio/wav;base64,' + evt.audio)
+          } else if (evt.type === 'turno' && typeof evt.turno === 'number') {
+            const novo = evt.turno
+            const txt = evt.avatar ?? ''
+            setTurns(prev => prev.map(t => t.turno === turnoFinal ? { ...t, turno: novo, avatar: txt } : t))
+            turnoFinal = novo
+            supervisorPromise = fetch('/api/anamnese/supervisor', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessao_id: sessao.id, turno: novo }),
+            }).then(r => (r.ok ? (r.json() as Promise<{ intervencao?: IntervencaoResult }>) : null)).catch(() => null)
+          } else if (evt.type === 'error') {
+            toast.error(evt.error || 'Erro ao gerar resposta.')
+          }
+        }
+      }
     } catch (err) {
-      const m = err instanceof Error ? err.message : 'Erro desconhecido'
-      toast.error(`Não foi possível enviar. ${m}`)
+      toast.error(`Não foi possível enviar. ${err instanceof Error ? err.message : ''}`)
     } finally {
-      setPendingTerapeuta(null)
       setIsLoading(false)
-    }
-    if (!turno) return
-
-    // FASE 2 — análise do Supervisor em PARALELO (corre enquanto o cliente fala)
-    const turnoNum = turno.turno
-    const supervisorPromise = fetch('/api/anamnese/supervisor', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessao_id: sessao.id, turno: turnoNum }),
-    })
-      .then(r => (r.ok ? (r.json() as Promise<{ intervencao?: IntervencaoResult }>) : null))
-      .catch(() => null)
-
-    // Cliente fala primeiro (o mute do mic é gerido pelo chamador de voz)
-    if (voiceEnabled && turno.avatar) {
-      await speak('/api/anamnese/tts', { text: turno.avatar, voice: voz }, 'cliente')
+      setStreamingTurno(null)
+      streamDoneRef.current = true
+      resolveDrainIfDone()
     }
 
-    // Intervenção do Supervisor, se existir — bolha + voz Hugo a seguir
+    // Espera a fala do cliente terminar
+    await waitForClienteDrain()
+
+    // Supervisor (correu em paralelo) — bolha + voz Hugo a seguir
     const sup = await supervisorPromise
     const intervencao = sup?.intervencao
     if (intervencao?.intervir && intervencao.intervencao && intervencao.tipo_erro) {
       const tipoErro = intervencao.tipo_erro
       const texto = intervencao.intervencao
-      setTurns(prev => prev.map(t =>
-        t.turno === turnoNum
-          ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto }
-          : t,
-      ))
-      if (voiceEnabled) await speak('/api/tts', { text: texto }, 'supervisor')
+      setTurns(prev => prev.map(t => t.turno === turnoFinal
+        ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto } : t))
+      await speak('/api/tts', { text: texto }, 'supervisor')
     }
-  }, [isLoading, concluida, sessao.id, voiceEnabled, speak, voz])
+  }, [isLoading, concluida, sessao.id, turns, enqueueChunk, resolveDrainIfDone, waitForClienteDrain, speak])
 
-  // ── Fim de fala do terapeuta (VAD do Gemini, modo STT) ───────────────────────
+  // ── Fim de fala do terapeuta (VAD do Gemini) → pipeline de voz ───────────────
   const handleVoiceTurn = useCallback(async (transcript: string) => {
     const text = transcript.trim()
     if (!text || isSendingRef.current) return
     isSendingRef.current = true
     setLiveUserSpeech('')
     gemini.clearSttBuffer()
-    gemini.pauseCapture() // corta o mic durante thinking + fala da IA (anti-eco)
+    gemini.pauseCapture()
     try {
-      await submitTurn(text)
+      await submitVoiceTurn(text)
     } finally {
       gemini.resumeCapture()
       isSendingRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitTurn])
+  }, [submitVoiceTurn])
 
   const handleVoiceError = useCallback((m: string) => {
     setVoiceErro(m)
     toast.error(m)
   }, [])
 
-  // ── Gemini Live em modo STT-only (igual ao Supervisor) ───────────────────────
   const gemini = useGeminiLive(
     voiceEnabled && !concluida
       ? {
           type: 'supervisor_stt',
-          systemPrompt: '',          // o servidor usa o seu próprio prompt mínimo de STT
-          voiceName: 'Puck',         // não usado (áudio do modelo é filtrado no servidor)
+          systemPrompt: '',
+          voiceName: 'Puck',
           sessionId: sessao.id,
           onAudioChunk: () => {},
           onTextResponse: () => {},
@@ -198,7 +308,6 @@ export function ChatAnamnese({ sessao }: Props) {
       : null,
   )
 
-  // ── Handlers que dependem do gemini (definidos depois) ───────────────────────
   const handleSend = useCallback(() => {
     const text = input.trim()
     if (!text) return
@@ -299,7 +408,6 @@ export function ChatAnamnese({ sessao }: Props) {
 
   return (
     <>
-      {/* Modal apagar */}
       {mostrarConfirmApagar && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="rounded-xl border p-6 space-y-4 max-w-sm w-full mx-4 shadow-xl" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
@@ -317,10 +425,7 @@ export function ChatAnamnese({ sessao }: Props) {
         </div>
       )}
 
-      <div
-        className="rounded-lg border overflow-hidden flex flex-col"
-        style={{ height: 'calc(100dvh - 9rem)', borderColor: 'var(--border)' }}
-      >
+      <div className="rounded-lg border overflow-hidden flex flex-col" style={{ height: 'calc(100dvh - 9rem)', borderColor: 'var(--border)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 md:px-5 py-3 border-b shrink-0" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
           <div className="flex items-center gap-3">
@@ -345,7 +450,6 @@ export function ChatAnamnese({ sessao }: Props) {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Toggle modo voz */}
             <button
               type="button"
               onClick={toggleVoice}
@@ -387,23 +491,23 @@ export function ChatAnamnese({ sessao }: Props) {
                   </div>
                 </div>
               )}
-              {turn.avatar && (
+              {(turn.avatar || turn.turno === streamingTurno) && (
                 <div className="flex items-start gap-2.5 max-w-[85%] group">
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0 mt-1" style={{ background: cor }}>
                     {avatar?.nome?.[0] ?? '?'}
                   </div>
                   <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed" style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}>
-                    {turn.avatar}
+                    {turn.avatar || (
+                      <span className="inline-flex gap-1">
+                        {[0, 150, 300].map(d => (
+                          <span key={d} className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: `${d}ms` }} />
+                        ))}
+                      </span>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => replayCliente(turn.avatar)}
-                    className="shrink-0 mt-1 p-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{ color: cor }}
-                    title={`Ouvir ${avatar?.nome ?? 'o cliente'}`}
-                  >
-                    🔈
-                  </button>
+                  {turn.avatar && (
+                    <button type="button" onClick={() => replayCliente(turn.avatar)} className="shrink-0 mt-1 p-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: cor }} title={`Ouvir ${avatar?.nome ?? 'o cliente'}`}>🔈</button>
+                  )}
                 </div>
               )}
               {turn.supervisor_interveio && turn.intervencao_supervisor && turn.tipo_erro && (
@@ -465,8 +569,6 @@ export function ChatAnamnese({ sessao }: Props) {
             Sessão concluída. Inicia uma nova anamnese para continuar a praticar.
           </div>
         ) : voiceEnabled ? (
-
-          /* ── Footer modo VOZ (microfone) ───────────────────────────────────── */
           <div className="border-t shrink-0" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
             {liveUserSpeech && (gemini.state === 'connected' || gemini.state === 'reconnecting') && (
               <div className="px-4 pt-3 pb-1">
@@ -475,65 +577,43 @@ export function ChatAnamnese({ sessao }: Props) {
                 </p>
               </div>
             )}
-
             <div className="p-4 flex items-center justify-center gap-4">
               {gemini.state === 'idle' && (
-                <button
-                  type="button"
-                  onClick={handleStartVoice}
-                  className="inline-flex items-center gap-2 rounded-full px-6 h-11 text-sm font-medium text-white transition-colors"
-                  style={{ background: cor }}
-                >
+                <button type="button" onClick={handleStartVoice} className="inline-flex items-center gap-2 rounded-full px-6 h-11 text-sm font-medium text-white transition-colors" style={{ background: cor }}>
                   <span className="text-base">🎤</span>
                   Iniciar sessão de voz
                 </button>
               )}
-
               {gemini.state === 'connecting' && (
                 <div className="flex items-center gap-3">
                   <span className="inline-flex gap-1">
-                    {[0, 150, 300].map(d => (
-                      <span key={d} className="w-2 h-2 rounded-full animate-bounce" style={{ background: cor, animationDelay: `${d}ms` }} />
-                    ))}
+                    {[0, 150, 300].map(d => (<span key={d} className="w-2 h-2 rounded-full animate-bounce" style={{ background: cor, animationDelay: `${d}ms` }} />))}
                   </span>
                   <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>A ligar ao microfone…</span>
                 </div>
               )}
-
               {(gemini.state === 'connected' || gemini.state === 'reconnecting') && (
                 <div className="flex items-center gap-4">
                   <div className="relative flex items-center justify-center w-10 h-10">
                     {!speakingRole && !isLoading && (
                       <span className="absolute inset-0 rounded-full animate-ping opacity-30" style={{ background: cor }} />
                     )}
-                    <span
-                      className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full text-base text-white"
-                      style={{ background: cor, transition: 'background 0.3s' }}
-                    >
+                    <span className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full text-base text-white" style={{ background: cor, transition: 'background 0.3s' }}>
                       {speakingRole ? '🔊' : isLoading ? '⏳' : '🎤'}
                     </span>
                   </div>
                   <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{statusVoz}</span>
                   {liveUserSpeech.trim() && !isLoading && !speakingRole && (
-                    <button
-                      type="button"
-                      onClick={handleManualVoiceSend}
-                      className="text-xs px-3 h-7 rounded-full font-medium text-white transition-colors"
-                      style={{ background: cor }}
-                    >
-                      Enviar
-                    </button>
+                    <button type="button" onClick={handleManualVoiceSend} className="text-xs px-3 h-7 rounded-full font-medium text-white transition-colors" style={{ background: cor }}>Enviar</button>
                   )}
                 </div>
               )}
-
               {gemini.state === 'closed' && (
                 <div className="flex items-center gap-3">
                   <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>Sessão de voz encerrada.</span>
                   <button type="button" className="text-xs underline" style={{ color: 'var(--primary)' }} onClick={handleStartVoice}>Reiniciar</button>
                 </div>
               )}
-
               {gemini.state === 'error' && (
                 <div className="flex flex-col items-center gap-1 text-center">
                   <span className="text-xs" style={{ color: 'oklch(0.55 0.18 25)' }}>{voiceErro || 'Erro na ligação ao serviço de voz.'}</span>
@@ -545,10 +625,7 @@ export function ChatAnamnese({ sessao }: Props) {
               🎤 Modo voz — fala com {avatar?.nome ?? 'o cliente'}. O Supervisor intervém em voz quando ficas no manifesto.
             </p>
           </div>
-
         ) : (
-
-          /* ── Footer modo TEXTO ─────────────────────────────────────────────── */
           <div className="p-3 border-t shrink-0" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
             <div className="flex gap-2 items-end">
               <textarea
@@ -566,13 +643,7 @@ export function ChatAnamnese({ sessao }: Props) {
                 className="flex-1 rounded-lg border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1"
                 style={{ background: 'var(--background)', borderColor: 'var(--border)', color: 'var(--foreground)', overflow: 'hidden', minHeight: '2.5rem', maxHeight: '7.5rem' }}
               />
-              <button
-                type="button"
-                onClick={handleSend}
-                disabled={isLoading || !input.trim()}
-                className="shrink-0 h-10 px-3 rounded-lg text-sm font-medium text-white disabled:opacity-50"
-                style={{ background: cor }}
-              >
+              <button type="button" onClick={handleSend} disabled={isLoading || !input.trim()} className="shrink-0 h-10 px-3 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: cor }}>
                 {isLoading ? '…' : '→'}
               </button>
             </div>
