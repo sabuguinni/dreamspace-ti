@@ -85,5 +85,5 @@ export async function POST(req: Request) {
     })
     .catch(err => console.warn('[anamnese/relatorio] debit failed:', err?.message))
 
-  return NextResponse.json({ relatorio, score })
+  return NextResponse.json({ relatorio, score: relatorio.score })
 }
