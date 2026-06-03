@@ -60,6 +60,17 @@ Trata o terapeuta por "tu".`
 export const AVATAR_ABERTURA_TRIGGER =
   'Inicia a sessão. O terapeuta acabou de te receber e vai perguntar-te o que te trouxe aqui. Apresenta-te em UMA ou duas frases simples (o teu primeiro nome e, de forma vaga e confusa, o que te incomoda) — como uma pessoa nervosa na primeira sessão. NÃO faças perguntas. NÃO conduzas. Espera que o terapeuta te guie.'
 
+/**
+ * Prompt do avatar para o modo VOZ (Gemini Live bidirecional).
+ * MESMA persona do modo escrito (buildAvatarSystemPrompt) + prefixo de voz — uma só fonte.
+ * NÃO inclui nós latentes (esses vivem só em buildSupervisorSystemPrompt, server-side).
+ */
+export function buildAvatarVoicePrompt(avatar: AnamneseAvatar): string {
+  return `[MODO VOZ] Estás numa sessão de VOZ. Falas de forma natural, pausada e humana, em frases curtas. Sem markdown, sem listas, sem enumerações.
+
+${buildAvatarSystemPrompt(avatar)}`
+}
+
 // ─── Supervisor de Anamnese ─────────────────────────────────────────────────────
 
 export function buildSupervisorSystemPrompt(avatar: AnamneseAvatar): string {
