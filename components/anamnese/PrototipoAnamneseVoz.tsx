@@ -74,6 +74,7 @@ export function PrototipoAnamneseVoz() {
   const lastCarolinaRef = useRef('')
   const turnoCounterRef = useRef(0)
   const turnsRef = useRef<Turno[]>([])
+  const supervisorAudioRef = useRef<HTMLAudioElement | null>(null)
 
   // Toca a intervenção do Supervisor via ElevenLabs (/api/tts). Pausa o microfone
   // enquanto fala para não realimentar o Gemini com a voz do Supervisor.
@@ -87,18 +88,39 @@ export function PrototipoAnamneseVoz() {
       if (!res.ok) return
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
+
+      // Guarda de sobreposição: parar o áudio anterior antes de tocar o novo.
+      if (supervisorAudioRef.current) {
+        try { supervisorAudioRef.current.pause() } catch { /* ignore */ }
+      }
+
       gemini.pauseCapture()
       setSupervisorAFalar(true)
+
       await new Promise<void>(resolve => {
         const audio = new Audio(url)
+        supervisorAudioRef.current = audio
+        let settled = false
+        let timer: ReturnType<typeof setTimeout>
         const done = () => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
           URL.revokeObjectURL(url)
-          setSupervisorAFalar(false)
-          gemini.resumeCapture()
+          // Só re-arma o mic se ESTE for o áudio activo (não um anterior parado pela guarda).
+          if (supervisorAudioRef.current === audio) {
+            supervisorAudioRef.current = null
+            setSupervisorAFalar(false)
+            gemini.resumeCapture()
+          }
           resolve()
         }
+        // Re-arma em QUALQUER fim: terminou, foi pausado/interrompido, ou erro.
         audio.onended = done
+        audio.onpause = done
         audio.onerror = done
+        // Timeout de segurança: se o áudio nunca sinalizar, força o resume.
+        timer = setTimeout(done, 60000)
         audio.play().catch(done)
       })
     } catch {

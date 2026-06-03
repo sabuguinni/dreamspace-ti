@@ -43,6 +43,9 @@ export async function POST(req: Request) {
   const avatar = getAnamneseAvatar(avatar_id)
   if (!avatar) return NextResponse.json({ error: 'Avatar não encontrado' }, { status: 404 })
 
+  console.log('[supervisor-teste] pergunta:', perguntaTerapeuta)
+  console.log('[supervisor-teste] msg anterior avatar:', mensagemAnteriorAvatar)
+
   const contexto: TurnoConversa[] = historico.map(t => ({
     turno: t.turno,
     timestamp: '',
@@ -58,6 +61,8 @@ export async function POST(req: Request) {
     console.error('[anamnese-teste/supervisor] error:', err)
     return NextResponse.json({ intervencao: { intervir: false } })
   }
+
+  console.log('[supervisor-teste] veredicto:', JSON.stringify(intervencao))
 
   const intervencaoTexto = intervencao.intervir && intervencao.intervencao
     ? enforceVocabulary(intervencao.intervencao).texto
