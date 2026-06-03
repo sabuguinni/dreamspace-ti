@@ -33,7 +33,7 @@ interface UseGeminiLiveOptions {
    *                    onUserSpeechFinal fires when the user finishes a turn.
    * 'avatar'         → default bidirectional voice with client system prompt.
    */
-  type?: 'supervisor' | 'supervisor_stt' | 'avatar'
+  type?: 'supervisor' | 'supervisor_stt' | 'avatar' | 'anamnese'
   onAudioChunk: (pcmBase64: string) => void
   onTextResponse: (text: string) => void
   onTranscription: (text: string, isUser: boolean) => void
@@ -44,6 +44,8 @@ interface UseGeminiLiveOptions {
    * Receives the complete transcription of the user's turn.
    */
   onUserSpeechFinal?: (text: string) => void
+  /** Chamado quando a fila de playback esvazia (fim da fala do avatar — áudio drenado). */
+  onPlaybackEnd?: () => void
 }
 
 // ─── Audio helpers ────────────────────────────────────────────────────────────
@@ -126,7 +128,9 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
 
   const playNextInQueue = useCallback(() => {
     if (!playbackContextRef.current || playbackQueueRef.current.length === 0) {
+      const wasPlaying = isPlayingRef.current
       isPlayingRef.current = false
+      if (wasPlaying) optionsRef.current?.onPlaybackEnd?.() // fila esvaziou → fim da fala do avatar (cauda drenada)
       return
     }
     isPlayingRef.current = true

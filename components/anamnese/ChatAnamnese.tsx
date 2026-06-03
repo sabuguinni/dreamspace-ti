@@ -264,12 +264,19 @@ export function ChatAnamnese({ sessao }: Props) {
     turnStartRef.current = 0
     setLiveUserSpeech('')
     setSpeakingRole(null)
-    // Carolina terminou → retoma o mic (pausado desde o 1º chunk). Cobre também interrupted:true.
-    audioStartedRef.current = false
-    resumeCaptureRef.current?.()
+    // Resume do mic: se a Carolina FALOU, vem do onPlaybackEnd (após a CAUDA drenar — evita o teu
+    // arranque sobrepor-se à voz residual dela). Se não houve áudio dela, re-arma já.
+    if (!audioStartedRef.current) resumeCaptureRef.current?.()
     if (!terapeuta && !avatarTxt) return
     void registarTurnoVoz(terapeuta, avatarTxt, dur)
   }, [registarTurnoVoz])
+
+  // Carolina terminou de TOCAR (cauda drenada) → re-arma o mic. Só se o Supervisor não estiver a falar.
+  const handlePlaybackEnd = useCallback(() => {
+    console.log('[mic] playbackEnd (cauda drenada) supervisorAudio=' + !!audioRef.current) // TEMP debug
+    audioStartedRef.current = false
+    if (!audioRef.current) resumeCaptureRef.current?.()
+  }, [])
 
   const handleVoiceError = useCallback((m: string) => {
     setVoiceErro(m)
@@ -279,7 +286,7 @@ export function ChatAnamnese({ sessao }: Props) {
   const gemini = useGeminiLive(
     voiceEnabled && !concluida && voiceCfg
       ? {
-          type: 'avatar',
+          type: 'anamnese',
           systemPrompt: voiceCfg.systemPrompt,
           voiceName: voiceCfg.voiceName,
           sessionId: sessao.id,
@@ -287,6 +294,7 @@ export function ChatAnamnese({ sessao }: Props) {
           onTextResponse: () => {},
           onTranscription: handleTranscription,
           onTurnComplete: handleTurnComplete,
+          onPlaybackEnd: handlePlaybackEnd,
           onError: handleVoiceError,
         }
       : null,
