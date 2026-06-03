@@ -15,6 +15,7 @@ interface Props {
 }
 
 type SpeakingRole = 'cliente' | 'supervisor' | null
+type VoiceCfg = { systemPrompt: string; voiceName: string; aberturaTrigger: string }
 
 const VOICE_KEY = 'anamnese_voice_enabled'
 
@@ -35,28 +36,23 @@ export function ChatAnamnese({ sessao }: Props) {
   const [mostrarConfirmConcluir, setMostrarConfirmConcluir] = useState(false)
   const [mostrarConfirmApagar, setMostrarConfirmApagar] = useState(false)
 
-  // ── Voz ────────────────────────────────────────────────────────────────────
+  // ── Voz (Gemini Live bidirecional — a Carolina é o Gemini) ───────────────────
   const [voiceEnabled, setVoiceEnabled] = useState(
     () => sessao.modo === 'voz' || (typeof window !== 'undefined' && localStorage.getItem(VOICE_KEY) === 'true'),
   )
+  const [voiceCfg, setVoiceCfg] = useState<VoiceCfg | null>(null) // persona+voz, server-side (sem nós latentes)
   const [speakingRole, setSpeakingRole] = useState<SpeakingRole>(null)
   const [liveUserSpeech, setLiveUserSpeech] = useState('')
   const [voiceErro, setVoiceErro] = useState('')
-  const [streamingTurno, setStreamingTurno] = useState<number | null>(null)
-  const [pensandoTurno, setPensandoTurno] = useState<number | null>(null)            // avatar a pensar (antes do áudio)
   const [supervisorPensandoTurno, setSupervisorPensandoTurno] = useState<number | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const isSendingRef = useRef(false)
-  const autoStartedRef = useRef(false) // arranca o mic uma só vez em modo voz
-  const aberturaFaladaRef = useRef(false) // fala a abertura (turno 0) uma só vez em voz
 
-  // Áudio do cliente em streaming — Web Audio API (playback gapless, sem new Audio() por chunk)
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const nextStartRef = useRef(0)
-  const scheduledRef = useRef(0)
-  const endedRef = useRef(0)
-  const streamDoneRef = useRef(false)
-  const drainResolveRef = useRef<(() => void) | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null) // áudio pontual (Supervisor / replays)
+  // Segmentação de turnos a partir da transcrição do Gemini (input=terapeuta, output=Carolina)
+  const therapistBufRef = useRef('')
+  const carolinaBufRef = useRef('')
+  const turnStartRef = useRef(0) // relógio do turno (→ duracao_segundos p/ débito gemini_live)
+  const aberturaEnviadaRef = useRef(false) // envia o trigger de abertura uma só vez
+  const turnsRef = useRef<TurnoConversa[]>(turns)
 
   const concluida = sessao.estado === 'concluida' || relatorio !== null
 
@@ -64,72 +60,17 @@ export function ChatAnamnese({ sessao }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const startRef = useRef<number>(new Date(sessao.created_at).getTime() || Date.now())
 
+  useEffect(() => { turnsRef.current = turns }, [turns])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [turns, pendingTerapeuta, relatorio, isGeneratingReport, liveUserSpeech])
 
   useEffect(() => {
-    return () => {
-      audioRef.current?.pause(); audioRef.current = null
-      audioCtxRef.current?.close().catch(() => {}); audioCtxRef.current = null
-    }
+    return () => { audioRef.current?.pause(); audioRef.current = null }
   }, [])
 
-  // ── Áudio do cliente (Web Audio API, gapless) ────────────────────────────────
-  const ensureAudioCtx = useCallback(() => {
-    if (!audioCtxRef.current) {
-      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      audioCtxRef.current = new Ctx()
-    }
-    if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume().catch(() => {})
-    return audioCtxRef.current
-  }, [])
-
-  const closeAudioCtx = useCallback(() => {
-    audioCtxRef.current?.close().catch(() => {})
-    audioCtxRef.current = null
-    nextStartRef.current = 0
-  }, [])
-
-  const resolveDrainIfDone = useCallback(() => {
-    if (streamDoneRef.current && scheduledRef.current === endedRef.current) {
-      setSpeakingRole(prev => (prev === 'cliente' ? null : prev))
-      drainResolveRef.current?.()
-      drainResolveRef.current = null
-    }
-  }, [])
-
-  // Descodifica o WAV e AGENDA-o (gapless) na timeline do AudioContext
-  const enqueueChunk = useCallback(async (wavB64: string) => {
-    try {
-      const ctx = ensureAudioCtx()
-      const bin = atob(wavB64)
-      const bytes = new Uint8Array(bin.length)
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-      const audioBuf = await ctx.decodeAudioData(bytes.buffer)
-      const src = ctx.createBufferSource()
-      src.buffer = audioBuf
-      src.connect(ctx.destination)
-      const startAt = Math.max(ctx.currentTime + 0.03, nextStartRef.current)
-      src.start(startAt)
-      nextStartRef.current = startAt + audioBuf.duration
-      scheduledRef.current += 1
-      setSpeakingRole('cliente')
-      src.onended = () => { endedRef.current += 1; resolveDrainIfDone() }
-    } catch {
-      resolveDrainIfDone()
-    }
-  }, [ensureAudioCtx, resolveDrainIfDone])
-
-  const waitForClienteDrain = useCallback(() => new Promise<void>(resolve => {
-    if (streamDoneRef.current && scheduledRef.current === endedRef.current) {
-      resolve()
-      return
-    }
-    drainResolveRef.current = resolve
-  }), [])
-
-  // ── TTS pontual (replays + voz do Supervisor) ────────────────────────────────
+  // ── TTS pontual (voz do Supervisor + replays) ────────────────────────────────
   const speak = useCallback(async (endpoint: string, payload: Record<string, unknown>, role: SpeakingRole, onStart?: () => void) => {
     try {
       const res = await fetch(endpoint, {
@@ -144,21 +85,27 @@ export function ChatAnamnese({ sessao }: Props) {
       if (!res.ok) return
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
-      if (audioRef.current) audioRef.current.pause()
+      if (audioRef.current) audioRef.current.pause() // guarda de sobreposição
       await new Promise<void>(resolve => {
         const audio = new Audio(url)
         audioRef.current = audio
         setSpeakingRole(role)
+        let settled = false
+        let started = false
+        let timer: ReturnType<typeof setTimeout>
         const finish = () => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
           URL.revokeObjectURL(url)
           if (audioRef.current === audio) { audioRef.current = null; setSpeakingRole(null) }
           resolve()
         }
-        let started = false
-        audio.onplaying = () => { if (!started) { started = true; onStart?.() } } // texto do Supervisor sincronizado com o início real da fala
+        audio.onplaying = () => { if (!started) { started = true; onStart?.() } } // texto sincronizado com o início real da fala
         audio.onended = finish
         audio.onpause = finish
         audio.onerror = finish
+        timer = setTimeout(finish, 60000) // segurança: resolve sempre, mesmo se o áudio nunca sinalizar
         audio.play().catch(finish)
       })
     } catch {
@@ -166,7 +113,7 @@ export function ChatAnamnese({ sessao }: Props) {
     }
   }, [])
 
-  // ── Modo TEXTO: turno + Supervisor (sem áudio) ───────────────────────────────
+  // ── Modo TEXTO: turno + Supervisor (sem áudio) — INTOCADO ────────────────────
   const submitTurn = useCallback(async (text: string) => {
     const msg = text.trim()
     if (!msg || isLoading || concluida) return
@@ -208,123 +155,96 @@ export function ChatAnamnese({ sessao }: Props) {
     }
   }, [isLoading, concluida, sessao.id])
 
-  // ── Modo VOZ: pipeline em streaming (Claude stream → TTS por frase → áudio) ───
-  const submitVoiceTurn = useCallback(async (text: string) => {
-    const msg = text.trim()
-    if (!msg || isLoading || concluida) return
-    setIsLoading(true)
+  // ── Modo VOZ: grava o turno (voz-registo) + corre o Supervisor em paralelo ────
+  const registarTurnoVoz = useCallback(async (terapeuta: string, avatarTxt: string, durSegundos: number) => {
+    const isAbertura = terapeuta.trim() === ''
 
-    // Reset do estado de áudio (Web Audio)
-    nextStartRef.current = 0
-    scheduledRef.current = 0
-    endedRef.current = 0
-    streamDoneRef.current = false
-    drainResolveRef.current = null
-
-    const tempTurno = turns.reduce((m, t) => Math.max(m, t.turno), 0) + 1
-    let turnoFinal = tempTurno
-    setStreamingTurno(tempTurno)
-    setPensandoTurno(tempTurno) // "[Nome] a pensar…" até chegar o texto processado (evento 'turno')
-    setTurns(prev => [...prev, { turno: tempTurno, timestamp: '', terapeuta: msg, avatar: '', supervisor_interveio: false }])
-
-    let supervisorPromise: Promise<{ intervencao?: IntervencaoResult } | null> = Promise.resolve(null)
-
-    try {
-      const res = await fetch('/api/anamnese/voz-turno', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessao_id: sessao.id, mensagem: msg }),
-      })
-      if (res.status === 402) {
-        toast.warning('Saldo insuficiente. Recarrega créditos na página Créditos.')
-        setTurns(prev => prev.filter(t => t.turno !== tempTurno))
-        return
-      }
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          let evt: { type: string; delta?: string; audio?: string; turno?: number; avatar?: string; error?: string }
-          try { evt = JSON.parse(line.slice(6)) } catch { continue }
-          // NOTA: ignoramos os deltas 'text' (texto cru, possível PT-BR). O texto só
-          // aparece no evento 'turno', já passado pelo enforcePtPt (cleanText).
-          if (evt.type === 'audio' && evt.audio) {
-            await enqueueChunk(evt.audio)
-          } else if (evt.type === 'turno' && typeof evt.turno === 'number') {
-            const novo = evt.turno
-            const txt = evt.avatar ?? ''
-            setTurns(prev => prev.map(t => t.turno === turnoFinal ? { ...t, turno: novo, avatar: txt } : t))
-            turnoFinal = novo
-            setPensandoTurno(null) // cleanText chegou → esconde "a pensar…" e mostra o texto processado
-            setSupervisorPensandoTurno(novo) // "Supervisor a pensar…" no bloco âmbar
-            supervisorPromise = fetch('/api/anamnese/supervisor', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ sessao_id: sessao.id, turno: novo }),
-            }).then(r => (r.ok ? (r.json() as Promise<{ intervencao?: IntervencaoResult }>) : null)).catch(() => null)
-          } else if (evt.type === 'error') {
-            toast.error(evt.error || 'Erro ao gerar resposta.')
-          }
-        }
-      }
-    } catch (err) {
-      toast.error(`Não foi possível enviar. ${err instanceof Error ? err.message : ''}`)
-    } finally {
-      setIsLoading(false)
-      setStreamingTurno(null)
-      setPensandoTurno(null)
-      streamDoneRef.current = true
-      resolveDrainIfDone()
+    // Display imediato
+    let tempTurno = 0
+    if (isAbertura) {
+      setTurns(prev => prev.map(t => (t.turno === 0 ? { ...t, avatar: avatarTxt } : t)))
+    } else {
+      tempTurno = turnsRef.current.reduce((m, t) => Math.max(m, t.turno), 0) + 1
+      setTurns(prev => [...prev, { turno: tempTurno, timestamp: '', terapeuta, avatar: avatarTxt, supervisor_interveio: false }])
     }
 
-    // Espera a fala do cliente terminar
-    await waitForClienteDrain()
+    let turnoFinal = tempTurno
+    try {
+      const res = await fetch('/api/anamnese/voz-registo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessao_id: sessao.id, terapeuta, avatar: avatarTxt, duracao_segundos: durSegundos }),
+      })
+      if (res.status === 402) { toast.warning('Saldo insuficiente. Recarrega créditos na página Créditos.'); return }
+      if (!res.ok) return
+      const data = (await res.json()) as { turno: number }
+      turnoFinal = data.turno
+      if (!isAbertura && turnoFinal !== tempTurno) {
+        setTurns(prev => prev.map(t => (t.turno === tempTurno ? { ...t, turno: turnoFinal } : t)))
+      }
+    } catch {
+      return
+    }
 
-    // Supervisor (correu em paralelo) — bolha + voz Hugo a seguir
-    const sup = await supervisorPromise
+    if (isAbertura) return // abertura não tem Supervisor (não houve pergunta do terapeuta)
+
+    // Supervisor (Claude) em paralelo — fora do caminho de áudio da Carolina
+    setSupervisorPensandoTurno(turnoFinal)
+    const sup = await fetch('/api/anamnese/supervisor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessao_id: sessao.id, turno: turnoFinal }),
+    }).then(r => (r.ok ? (r.json() as Promise<{ intervencao?: IntervencaoResult }>) : null)).catch(() => null)
     setSupervisorPensandoTurno(null)
+
     const intervencao = sup?.intervencao
     if (intervencao?.intervir && intervencao.intervencao && intervencao.tipo_erro) {
       const tipoErro = intervencao.tipo_erro
       const texto = intervencao.intervencao
-      // Mostra o texto da intervenção EXACTAMENTE quando o áudio do Supervisor começa a tocar
       let mostrado = false
       const mostrarTexto = () => {
         if (mostrado) return
         mostrado = true
-        setTurns(prev => prev.map(t => t.turno === turnoFinal
-          ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto } : t))
+        setTurns(prev => prev.map(t => (t.turno === turnoFinal
+          ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto } : t)))
       }
-      await speak('/api/tts', { text: texto }, 'supervisor', mostrarTexto)
-      mostrarTexto() // fallback: se o áudio falhar, garante que o texto aparece à mesma
-    }
-  }, [isLoading, concluida, sessao.id, turns, enqueueChunk, resolveDrainIfDone, waitForClienteDrain, speak])
-
-  // ── Fim de fala do terapeuta (VAD do Gemini) → pipeline de voz ───────────────
-  const handleVoiceTurn = useCallback(async (transcript: string) => {
-    const text = transcript.trim()
-    if (!text || isSendingRef.current) return
-    isSendingRef.current = true
-    setLiveUserSpeech('')
-    gemini.clearSttBuffer()
-    gemini.pauseCapture()
-    try {
-      await submitVoiceTurn(text)
-    } finally {
-      gemini.resumeCapture()
-      isSendingRef.current = false
+      gemini.pauseCapture() // corta o mic enquanto o Supervisor fala (anti-eco)
+      try {
+        await speak('/api/tts', { text: texto }, 'supervisor', mostrarTexto) // texto sincronizado com onplaying
+      } finally {
+        mostrarTexto()         // fallback se o áudio falhar
+        gemini.resumeCapture() // re-arma sempre
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitVoiceTurn])
+  }, [sessao.id, speak])
+
+  // Deltas de transcrição do Gemini: input = terapeuta, output = Carolina.
+  const handleTranscription = useCallback((text: string, isUser: boolean) => {
+    if (isUser) {
+      if (!therapistBufRef.current) turnStartRef.current = Date.now() // começa a cronometrar no 1º delta
+      therapistBufRef.current += text
+      setLiveUserSpeech(therapistBufRef.current)
+      setSpeakingRole(null) // terapeuta a falar = estamos a escutar
+    } else {
+      carolinaBufRef.current += text
+      setSpeakingRole('cliente') // a Carolina (Gemini) está a falar
+    }
+  }, [])
+
+  // Fim do turno do modelo (Gemini) → fecha a troca e grava/avalia.
+  const handleTurnComplete = useCallback(() => {
+    const terapeuta = therapistBufRef.current.trim()
+    const avatarTxt = carolinaBufRef.current.trim()
+    const dur = turnStartRef.current ? (Date.now() - turnStartRef.current) / 1000 : 0
+    therapistBufRef.current = ''
+    carolinaBufRef.current = ''
+    turnStartRef.current = 0
+    setLiveUserSpeech('')
+    setSpeakingRole(null)
+    if (!terapeuta && !avatarTxt) return
+    void registarTurnoVoz(terapeuta, avatarTxt, dur)
+  }, [registarTurnoVoz])
 
   const handleVoiceError = useCallback((m: string) => {
     setVoiceErro(m)
@@ -332,17 +252,16 @@ export function ChatAnamnese({ sessao }: Props) {
   }, [])
 
   const gemini = useGeminiLive(
-    voiceEnabled && !concluida
+    voiceEnabled && !concluida && voiceCfg
       ? {
-          type: 'supervisor_stt',
-          systemPrompt: '',
-          voiceName: 'Puck',
+          type: 'avatar',
+          systemPrompt: voiceCfg.systemPrompt,
+          voiceName: voiceCfg.voiceName,
           sessionId: sessao.id,
           onAudioChunk: () => {},
           onTextResponse: () => {},
-          onTranscription: (t, isUser) => { if (isUser) setLiveUserSpeech(prev => (prev + t + ' ').trimStart()) },
-          onTurnComplete: () => {},
-          onUserSpeechFinal: handleVoiceTurn,
+          onTranscription: handleTranscription,
+          onTurnComplete: handleTurnComplete,
           onError: handleVoiceError,
         }
       : null,
@@ -356,43 +275,37 @@ export function ChatAnamnese({ sessao }: Props) {
     void submitTurn(text)
   }, [input, submitTurn])
 
+  // Mic + voz no GESTO do clique (autoplay policy): resumePlayback + connect síncronos.
   const handleStartVoice = useCallback(() => {
+    if (!voiceCfg) return // ainda a preparar a persona — botão fica desactivado
     setVoiceErro('')
     setLiveUserSpeech('')
-    isSendingRef.current = false
-    ensureAudioCtx() // cria/retoma o AudioContext dentro do gesto (autoplay policy)
+    gemini.resumePlayback() // contexto de playback no gesto → a Carolina fala à primeira
     gemini.connect()
-  }, [gemini, ensureAudioCtx])
+  }, [gemini, voiceCfg])
 
-  // Modo voz: arranca o microfone automaticamente no mount (aproveita o gesto de criação da sessão).
-  // Se o browser bloquear (sem gesto/permissão), o hook cai em 'error' → botão "Tentar novamente".
+  // Busca a config de voz (persona server-side, sem nós latentes) ao entrar em modo voz.
   useEffect(() => {
-    if (autoStartedRef.current) return
-    if (sessao.modo === 'voz' && voiceEnabled && !concluida && gemini.state === 'idle') {
-      autoStartedRef.current = true
-      handleStartVoice()
-    }
-  }, [voiceEnabled, concluida, gemini.state, handleStartVoice, sessao.modo])
+    if (!voiceEnabled || concluida || voiceCfg) return
+    let cancelled = false
+    fetch(`/api/anamnese/voz-prompt?avatar_id=${encodeURIComponent(sessao.avatar_id)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d?.systemPrompt) setVoiceCfg(d as VoiceCfg) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [voiceEnabled, concluida, voiceCfg, sessao.avatar_id])
 
-  // Modo voz: fala a abertura (turno 0) automaticamente quando o mic liga, em sessão fresca.
-  // O terapeuta ouve o cliente apresentar-se sem escrever nada primeiro.
+  // Abertura por trigger: quando o Gemini liga numa sessão fresca, a Carolina apresenta-se em voz.
   useEffect(() => {
-    if (aberturaFaladaRef.current || gemini.state !== 'connected') return
-    const abertura = turns.find(t => t.turno === 0)
-    const apenasAbertura = turns.every(t => t.turno === 0) // sessão acabada de abrir
-    if (abertura?.avatar && apenasAbertura && voiceEnabled && !concluida) {
-      aberturaFaladaRef.current = true
-      gemini.pauseCapture() // corta o mic enquanto o cliente se apresenta (anti-eco)
-      void speak('/api/anamnese/tts', { text: abertura.avatar, voice: voz }, 'cliente').finally(() => gemini.resumeCapture())
+    if (aberturaEnviadaRef.current || gemini.state !== 'connected' || !voiceCfg) return
+    const t0 = turns.find(t => t.turno === 0)
+    const sessaoFresca = !turns.some(t => t.turno > 0) && (!t0 || !t0.avatar) // turno 0 ainda sem abertura
+    if (sessaoFresca && voiceEnabled && !concluida) {
+      aberturaEnviadaRef.current = true
+      gemini.sendText(voiceCfg.aberturaTrigger)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gemini.state, turns, voiceEnabled, concluida, speak, voz])
-
-  const handleManualVoiceSend = useCallback(() => {
-    const text = liveUserSpeech.trim()
-    if (!text || isLoading || speakingRole) return
-    void handleVoiceTurn(text)
-  }, [liveUserSpeech, isLoading, speakingRole, handleVoiceTurn])
+  }, [gemini.state, voiceCfg, turns, voiceEnabled, concluida])
 
   const toggleVoice = useCallback(() => {
     setVoiceEnabled(prev => {
@@ -400,12 +313,11 @@ export function ChatAnamnese({ sessao }: Props) {
       localStorage.setItem(VOICE_KEY, String(next))
       if (!next) {
         audioRef.current?.pause(); audioRef.current = null; setSpeakingRole(null)
-        closeAudioCtx()
         gemini.disconnect(); setLiveUserSpeech('')
       }
       return next
     })
-  }, [gemini, closeAudioCtx])
+  }, [gemini])
 
   const replayCliente = useCallback((texto: string) => {
     if (!texto) return
@@ -423,7 +335,6 @@ export function ChatAnamnese({ sessao }: Props) {
     setIsGeneratingReport(true)
     setMostrarConfirmConcluir(false)
     audioRef.current?.pause()
-    closeAudioCtx()
     gemini.disconnect()
     try {
       const durationMs = Date.now() - startRef.current
@@ -446,10 +357,9 @@ export function ChatAnamnese({ sessao }: Props) {
     } finally {
       setIsGeneratingReport(false)
     }
-  }, [sessao.id, gemini, closeAudioCtx])
+  }, [sessao.id, gemini])
 
   const handleApagar = useCallback(async () => {
-    closeAudioCtx()
     gemini.disconnect()
     try {
       const res = await fetch(`/api/anamnese/sessao/${sessao.id}`, { method: 'DELETE' })
@@ -464,13 +374,12 @@ export function ChatAnamnese({ sessao }: Props) {
       toast.error('Erro ao apagar.')
       setMostrarConfirmApagar(false)
     }
-  }, [sessao.id, router, gemini, closeAudioCtx])
+  }, [sessao.id, router, gemini])
 
   const temTurnosReais = turns.some(t => t.turno > 0)
   const statusVoz =
     speakingRole === 'cliente' ? `${avatar?.nome ?? 'O cliente'} está a falar…`
       : speakingRole === 'supervisor' ? 'Supervisor a falar…'
-      : isLoading ? 'A processar…'
       : gemini.state === 'reconnecting' ? 'A reconectar…'
       : 'A escutar — fala agora'
 
@@ -559,32 +468,15 @@ export function ChatAnamnese({ sessao }: Props) {
                   </div>
                 </div>
               )}
-              {(turn.avatar || turn.turno === streamingTurno) && (
+              {turn.avatar && (
                 <div className="flex items-start gap-2.5 max-w-[85%] group">
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0 mt-1" style={{ background: cor }}>
                     {avatar?.nome?.[0] ?? '?'}
                   </div>
                   <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed" style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}>
-                    {turn.turno === pensandoTurno ? (
-                      <span className="inline-flex items-center gap-2" style={{ color: 'var(--muted-foreground)' }}>
-                        <span className="italic">{avatar?.nome ?? 'O cliente'} a pensar</span>
-                        <span className="inline-flex gap-1">
-                          {[0, 150, 300].map(d => (
-                            <span key={d} className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: `${d}ms` }} />
-                          ))}
-                        </span>
-                      </span>
-                    ) : turn.avatar ? turn.avatar : (
-                      <span className="inline-flex gap-1">
-                        {[0, 150, 300].map(d => (
-                          <span key={d} className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--muted-foreground)', animationDelay: `${d}ms` }} />
-                        ))}
-                      </span>
-                    )}
+                    {turn.avatar}
                   </div>
-                  {turn.avatar && turn.turno !== pensandoTurno && (
-                    <button type="button" onClick={() => replayCliente(turn.avatar)} className="shrink-0 mt-1 p-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: cor }} title={`Ouvir ${avatar?.nome ?? 'o cliente'}`}>🔈</button>
-                  )}
+                  <button type="button" onClick={() => replayCliente(turn.avatar)} className="shrink-0 mt-1 p-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: cor }} title={`Ouvir ${avatar?.nome ?? 'o cliente'}`}>🔈</button>
                 </div>
               )}
               {turn.supervisor_interveio && turn.intervencao_supervisor && turn.tipo_erro && (
@@ -668,9 +560,9 @@ export function ChatAnamnese({ sessao }: Props) {
             )}
             <div className="p-4 flex items-center justify-center gap-4">
               {gemini.state === 'idle' && (
-                <button type="button" onClick={handleStartVoice} className="inline-flex items-center gap-2 rounded-full px-6 h-11 text-sm font-medium text-white transition-colors" style={{ background: cor }}>
+                <button type="button" onClick={handleStartVoice} disabled={!voiceCfg} className="inline-flex items-center gap-2 rounded-full px-6 h-11 text-sm font-medium text-white transition-colors disabled:opacity-50" style={{ background: cor }}>
                   <span className="text-base">🎤</span>
-                  Iniciar sessão de voz
+                  {voiceCfg ? 'Iniciar sessão de voz' : 'A preparar…'}
                 </button>
               )}
               {gemini.state === 'connecting' && (
@@ -684,17 +576,14 @@ export function ChatAnamnese({ sessao }: Props) {
               {(gemini.state === 'connected' || gemini.state === 'reconnecting') && (
                 <div className="flex items-center gap-4">
                   <div className="relative flex items-center justify-center w-10 h-10">
-                    {!speakingRole && !isLoading && (
+                    {!speakingRole && (
                       <span className="absolute inset-0 rounded-full animate-ping opacity-30" style={{ background: cor }} />
                     )}
                     <span className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full text-base text-white" style={{ background: cor, transition: 'background 0.3s' }}>
-                      {speakingRole ? '🔊' : isLoading ? '⏳' : '🎤'}
+                      {speakingRole ? '🔊' : '🎤'}
                     </span>
                   </div>
                   <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{statusVoz}</span>
-                  {liveUserSpeech.trim() && !isLoading && !speakingRole && (
-                    <button type="button" onClick={handleManualVoiceSend} className="text-xs px-3 h-7 rounded-full font-medium text-white transition-colors" style={{ background: cor }}>Enviar</button>
-                  )}
                 </div>
               )}
               {gemini.state === 'closed' && (

@@ -68,23 +68,27 @@ export async function POST(req: Request) {
     )
   }
 
-  // ── Gera a abertura do avatar (turno 0) ──────────────────────────────────────
-  const feminino = getAnamneseAvatarPublico(avatar.id)?.genero === 'f'
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  // ── Abertura do avatar (turno 0) ──────────────────────────────────────────────
+  // Modo escrito: gerada por Claude aqui. Modo voz: fica VAZIA — a Carolina abre em voz
+  // via Gemini (trigger no cliente) e a abertura é gravada por /api/anamnese/voz-registo.
   let openingText = ''
-  try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 400,
-      system: buildAvatarSystemPrompt(avatar),
-      messages: [{ role: 'user', content: AVATAR_ABERTURA_TRIGGER }],
-    })
-    openingText = await rewritePtPt(enforcePtPt(enforceVocabulary(
-      response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join(''),
-    ).texto, { feminino }))
-  } catch (err) {
-    console.error('[anamnese/sessao] opening error:', err)
-    openingText = `Olá. Sou a ${avatar.nome}. Não sei bem por onde começar, mas vim cá para tentar perceber algumas coisas.`
+  if (parsed.data.modo === 'escrito') {
+    const feminino = getAnamneseAvatarPublico(avatar.id)?.genero === 'f'
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 400,
+        system: buildAvatarSystemPrompt(avatar),
+        messages: [{ role: 'user', content: AVATAR_ABERTURA_TRIGGER }],
+      })
+      openingText = await rewritePtPt(enforcePtPt(enforceVocabulary(
+        response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join(''),
+      ).texto, { feminino }))
+    } catch (err) {
+      console.error('[anamnese/sessao] opening error:', err)
+      openingText = `Olá. Sou a ${avatar.nome}. Não sei bem por onde começar, mas vim cá para tentar perceber algumas coisas.`
+    }
   }
 
   const aberturaTurno: TurnoConversa = {

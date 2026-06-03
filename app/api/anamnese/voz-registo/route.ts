@@ -6,7 +6,7 @@ import { z } from 'zod'
 
 const Schema = z.object({
   sessao_id: z.string().uuid(),
-  terapeuta: z.string().min(1).max(8000),
+  terapeuta: z.string().max(8000), // '' na abertura (a Carolina apresenta-se sem pergunta do terapeuta)
   avatar: z.string().min(1).max(8000),
   // Duração de voz deste turno (relógio: início da fala do terapeuta → fim da resposta).
   // Soma ao longo da sessão ≈ minutos de conversa; débito gemini_live proporcional.
@@ -46,18 +46,28 @@ export async function POST(req: Request) {
   if (sessao.estado === 'concluida') return NextResponse.json({ error: 'Sessão já concluída' }, { status: 400 })
 
   const historico: TurnoConversa[] = Array.isArray(sessao.historico_conversa) ? sessao.historico_conversa : []
-  const proximoTurno = historico.reduce((max, t) => Math.max(max, t.turno), 0) + 1
-  const novoTurno: TurnoConversa = {
-    turno: proximoTurno,
-    timestamp: new Date().toISOString(),
-    terapeuta,
-    avatar,
-    supervisor_interveio: false, // preenchido por /api/anamnese/supervisor se intervier
+  const isAbertura = terapeuta.trim() === ''
+
+  // Abertura (sem pergunta do terapeuta) → preenche o turno 0 (criado vazio na sessão de voz).
+  // Restantes → append como próximo turno. Mantém turno 0 = abertura (excluída do score).
+  let turnoNum: number
+  let novoHistorico: TurnoConversa[]
+  if (isAbertura) {
+    turnoNum = 0
+    novoHistorico = historico.some(t => t.turno === 0)
+      ? historico.map(t => (t.turno === 0 ? { ...t, avatar, timestamp: new Date().toISOString() } : t))
+      : [{ turno: 0, timestamp: new Date().toISOString(), terapeuta: '', avatar, supervisor_interveio: false }, ...historico]
+  } else {
+    turnoNum = historico.reduce((max, t) => Math.max(max, t.turno), 0) + 1
+    novoHistorico = [
+      ...historico,
+      { turno: turnoNum, timestamp: new Date().toISOString(), terapeuta, avatar, supervisor_interveio: false },
+    ]
   }
 
   const { error: updErr } = await supabase
     .from('sessoes_anamnese')
-    .update({ historico_conversa: [...historico, novoTurno] })
+    .update({ historico_conversa: novoHistorico })
     .eq('id', sessao_id)
     .eq('user_id', user.id)
   if (updErr) {
@@ -71,11 +81,11 @@ export async function POST(req: Request) {
     lookupUser(user.email ?? '')
       .then(lmsUser => {
         if (lmsUser && !lmsUser.isAdmin) {
-          return debit(lmsUser.userId, 'gemini_live', minutos, `Anamnese voz (turno ${proximoTurno})`)
+          return debit(lmsUser.userId, 'gemini_live', minutos, `Anamnese voz (turno ${turnoNum})`)
         }
       })
       .catch(err => console.warn('[anamnese/voz-registo] debit failed:', err?.message))
   }
 
-  return NextResponse.json({ turno: proximoTurno })
+  return NextResponse.json({ turno: turnoNum })
 }

@@ -383,6 +383,8 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
   const resumeCapture = useCallback(() => { capturePausedRef.current = false }, [])
   /** Clear the STT accumulation buffer (e.g. after manual send in supervisor_stt mode). */
   const clearSttBuffer = useCallback(() => { sttBufferRef.current = '' }, [])
+  /** Envia um turno de TEXTO ao Gemini (ex.: trigger de abertura no modo avatar). */
+  const sendText = useCallback((text: string) => { socketRef.current?.emit('gemini:text', { text }) }, [])
 
   useEffect(() => {
     return () => {
@@ -404,5 +406,6 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
     pauseCapture,
     resumeCapture,
     clearSttBuffer,
+    sendText,
   }
 }
