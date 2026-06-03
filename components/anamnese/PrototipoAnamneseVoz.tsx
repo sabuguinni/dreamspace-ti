@@ -81,7 +81,7 @@ export function PrototipoAnamneseVoz() {
 
   // Toca a intervenção do Supervisor via ElevenLabs (/api/tts). Pausa o microfone
   // enquanto fala para não realimentar o Gemini com a voz do Supervisor.
-  const playSupervisor = useCallback(async (texto: string) => {
+  const playSupervisor = useCallback(async (texto: string, onStart?: () => void) => {
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
@@ -104,7 +104,9 @@ export function PrototipoAnamneseVoz() {
         const audio = new Audio(url)
         supervisorAudioRef.current = audio
         let settled = false
+        let startFired = false
         let timer: ReturnType<typeof setTimeout>
+        const fireStart = () => { if (!startFired) { startFired = true; onStart?.() } }
         const done = () => {
           if (settled) return
           settled = true
@@ -118,13 +120,15 @@ export function PrototipoAnamneseVoz() {
           }
           resolve()
         }
+        // Texto sincronizado com o INÍCIO real da fala (não antes).
+        audio.onplaying = fireStart
         // Re-arma em QUALQUER fim: terminou, foi pausado/interrompido, ou erro.
         audio.onended = done
         audio.onpause = done
-        audio.onerror = done
+        audio.onerror = () => { fireStart(); done() } // fallback: mostra o texto mesmo se o áudio falhar
         // Timeout de segurança: se o áudio nunca sinalizar, força o resume.
         timer = setTimeout(done, 60000)
-        audio.play().catch(done)
+        audio.play().catch(() => { fireStart(); done() })
       })
     } catch {
       setSupervisorAFalar(false)
@@ -149,8 +153,16 @@ export function PrototipoAnamneseVoz() {
         const i = data.intervencao
         if (i?.intervir && i.intervencao) {
           const texto = i.intervencao
-          setIntervencoes(prev => [...prev, { turno: turnoAtual, tipo: i.tipo_erro ?? '', texto }])
-          await playSupervisor(texto)
+          const tipo = i.tipo_erro ?? ''
+          // O texto só aparece quando o áudio ElevenLabs começa a tocar (onplaying).
+          let mostrado = false
+          const mostrarTexto = () => {
+            if (mostrado) return
+            mostrado = true
+            setIntervencoes(prev => [...prev, { turno: turnoAtual, tipo, texto }])
+          }
+          await playSupervisor(texto, mostrarTexto)
+          mostrarTexto() // fallback: garante que o texto aparece se o áudio falhar
         }
       } catch {
         /* protótipo: silencioso */
