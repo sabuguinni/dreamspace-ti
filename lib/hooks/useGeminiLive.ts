@@ -298,6 +298,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
         // User speech transcription
         const inputTranscription = content.inputTranscription as { text?: string } | undefined
         if (inputTranscription?.text) {
+          console.log('[stt] input:', inputTranscription.text) // TEMP debug
           if (isSttMode) {
             // Acumula a transcrição. Os deltas do Gemini já trazem os espaços correctos —
             // NÃO acrescentar ' ' (fragmentava palavras: "Entã o , quan tas").
@@ -313,6 +314,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
         if (!isSttMode) {
           const outputTranscription = content.outputTranscription as { text?: string } | undefined
           if (outputTranscription?.text) {
+            console.log('[stt] output(avatar):', outputTranscription.text) // TEMP debug
             o.onTranscription(outputTranscription.text, false)
             transcriptRef.current.push(`[Avatar]: ${outputTranscription.text}`)
           }

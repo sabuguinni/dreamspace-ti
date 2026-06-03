@@ -53,6 +53,10 @@ export function ChatAnamnese({ sessao }: Props) {
   const turnStartRef = useRef(0) // relógio do turno (→ duracao_segundos p/ débito gemini_live)
   const aberturaEnviadaRef = useRef(false) // envia o trigger de abertura uma só vez
   const turnsRef = useRef<TurnoConversa[]>(turns)
+  // Mic anti-eco (padrão dos Avatares): 1º chunk da fala da Carolina pausa o mic; turnComplete retoma.
+  const pauseCaptureRef = useRef<(() => void) | null>(null)
+  const resumeCaptureRef = useRef<(() => void) | null>(null)
+  const audioStartedRef = useRef(false)
 
   const concluida = sessao.estado === 'concluida' || relatorio !== null
 
@@ -242,6 +246,14 @@ export function ChatAnamnese({ sessao }: Props) {
     }
   }, [])
 
+  // 1º chunk de áudio da Carolina → pausa o mic (anti-eco), como os Avatares. Resume em handleTurnComplete.
+  const handleAudioChunk = useCallback(() => {
+    if (!audioStartedRef.current) {
+      audioStartedRef.current = true
+      pauseCaptureRef.current?.()
+    }
+  }, [])
+
   // Fim do turno do modelo (Gemini) → fecha a troca e grava/avalia.
   const handleTurnComplete = useCallback(() => {
     const terapeuta = therapistBufRef.current.trim()
@@ -252,6 +264,9 @@ export function ChatAnamnese({ sessao }: Props) {
     turnStartRef.current = 0
     setLiveUserSpeech('')
     setSpeakingRole(null)
+    // Carolina terminou → retoma o mic (pausado desde o 1º chunk). Cobre também interrupted:true.
+    audioStartedRef.current = false
+    resumeCaptureRef.current?.()
     if (!terapeuta && !avatarTxt) return
     void registarTurnoVoz(terapeuta, avatarTxt, dur)
   }, [registarTurnoVoz])
@@ -268,7 +283,7 @@ export function ChatAnamnese({ sessao }: Props) {
           systemPrompt: voiceCfg.systemPrompt,
           voiceName: voiceCfg.voiceName,
           sessionId: sessao.id,
-          onAudioChunk: () => {},
+          onAudioChunk: handleAudioChunk,
           onTextResponse: () => {},
           onTranscription: handleTranscription,
           onTurnComplete: handleTurnComplete,
@@ -276,6 +291,12 @@ export function ChatAnamnese({ sessao }: Props) {
         }
       : null,
   )
+
+  // Sincroniza as refs de pausa/retoma do mic (evita ciclo de criação com o objecto gemini).
+  useEffect(() => {
+    pauseCaptureRef.current = gemini.pauseCapture
+    resumeCaptureRef.current = gemini.resumeCapture
+  }, [gemini.pauseCapture, gemini.resumeCapture])
 
   const handleSend = useCallback(() => {
     const text = input.trim()
