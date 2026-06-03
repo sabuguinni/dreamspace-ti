@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useGeminiLive } from '@/lib/hooks/useGeminiLive'
 
 /**
@@ -61,7 +61,6 @@ type Intervencao = { turno: number; tipo: string; texto: string }
 
 export function PrototipoAnamneseVoz() {
   const [started, setStarted] = useState(false)
-  const [sessionId, setSessionId] = useState('')
   const [turns, setTurns] = useState<Turno[]>([])
   const [intervencoes, setIntervencoes] = useState<Intervencao[]>([])
   const [liveTerapeuta, setLiveTerapeuta] = useState('')
@@ -75,6 +74,10 @@ export function PrototipoAnamneseVoz() {
   const turnoCounterRef = useRef(0)
   const turnsRef = useRef<Turno[]>([])
   const supervisorAudioRef = useRef<HTMLAudioElement | null>(null)
+  // sessionId estável desde o 1º render (cliente) → opções do hook sempre presentes →
+  // connect() pode correr de imediato no gesto (o AudioContext de entrada nasce activado).
+  const sessionIdRef = useRef<string>('')
+  if (typeof window !== 'undefined' && !sessionIdRef.current) sessionIdRef.current = crypto.randomUUID()
 
   // Toca a intervenção do Supervisor via ElevenLabs (/api/tts). Pausa o microfone
   // enquanto fala para não realimentar o Gemini com a voz do Supervisor.
@@ -190,28 +193,19 @@ export function PrototipoAnamneseVoz() {
     if (terapeuta) void correrSupervisor(terapeuta, anterior, historicoAntes, turno)
   }, [correrSupervisor])
 
-  const gemini = useGeminiLive(
-    sessionId
-      ? {
-          type: 'avatar',
-          systemPrompt: CAROLINA_PROMPT,
-          voiceName: CAROLINA_VOICE,
-          sessionId,
-          onAudioChunk: () => {},
-          onTextResponse: () => {},
-          onTranscription,
-          onTurnComplete,
-          onError: (m: string) => setErro(m),
-        }
-      : null,
-  )
-
-  // Liga quando o sessionId é definido (gerado no clique, dentro do gesto do utilizador).
-  useEffect(() => {
-    if (!sessionId) return
-    gemini.connect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId])
+  // Opções SEMPRE presentes (sessionId estável no ref) — assim o connect() pode correr
+  // sincronamente no gesto, sem esperar por re-render. O hook não liga sozinho; só em connect().
+  const gemini = useGeminiLive({
+    type: 'avatar',
+    systemPrompt: CAROLINA_PROMPT,
+    voiceName: CAROLINA_VOICE,
+    sessionId: sessionIdRef.current,
+    onAudioChunk: () => {},
+    onTextResponse: () => {},
+    onTranscription,
+    onTurnComplete,
+    onError: (m: string) => setErro(m),
+  })
 
   const iniciar = useCallback(() => {
     therapistBufRef.current = ''
@@ -225,15 +219,16 @@ export function PrototipoAnamneseVoz() {
     setLiveTerapeuta('')
     setLiveCarolina('')
     setStarted(true)
-    gemini.resumePlayback() // cria o AudioContext dentro do gesto (autoplay policy)
-    setSessionId(crypto.randomUUID()) // dispara o useEffect → connect
+    // resumePlayback E connect SÍNCRONOS no gesto (como o AvatarChat) → o AudioContext de
+    // entrada nasce dentro da activação do clique e capta logo à primeira.
+    gemini.resumePlayback()
+    gemini.connect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const parar = useCallback(() => {
     gemini.disconnect()
     setStarted(false)
-    setSessionId('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
