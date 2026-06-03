@@ -59,6 +59,43 @@ export function RelatorioAnamneseView({ relatorio }: { relatorio: Relatorio }) {
         </div>
       </div>
 
+      {/* Suficiência da sessão — explica por que o score foi limitado */}
+      {relatorio.nota_suficiencia && (
+        <div className="rounded-xl border p-4" style={{ borderColor: '#C9A96155', background: '#3D2B0010' }}>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: '#B8924A' }}>
+            Suficiência da sessão
+          </p>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--foreground)' }}>
+            {relatorio.nota_suficiencia}
+          </p>
+        </div>
+      )}
+
+      {/* Passos da metodologia explorados */}
+      {relatorio.cobertura_metodologia && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>
+            Passos da metodologia
+          </p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {([
+              ['simbolo', 'Significado do símbolo'],
+              ['episodio', 'Episódio concreto'],
+              ['corpo', 'Sensação corporal'],
+              ['latente', 'Conteúdo latente'],
+            ] as const).map(([key, label]) => {
+              const ok = relatorio.cobertura_metodologia?.[key]
+              return (
+                <div key={key} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
+                  <span style={{ color: ok ? 'oklch(0.55 0.18 145)' : 'oklch(0.52 0.22 25)' }}>{ok ? '✓' : '✗'}</span>
+                  <span style={{ color: ok ? 'var(--foreground)' : 'var(--muted-foreground)' }}>{label}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Intervenções do Supervisor */}
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>

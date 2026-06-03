@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { lookupUser, debit } from '@/lib/aiCreditsClient'
 import { getAnamneseAvatar } from '@/lib/anamnese/narrativas'
 import { gerarNotaPedagogica } from '@/lib/anamnese/supervisor'
-import { calcularScore, construirRelatorio } from '@/lib/anamnese/score'
+import { calcularRigor, construirRelatorio } from '@/lib/anamnese/score'
 import type { SessaoAnamnese, TurnoConversa } from '@/lib/anamnese/types'
 import { z } from 'zod'
 
@@ -50,10 +50,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Sessão demasiado curta para gerar relatório.' }, { status: 400 })
   }
 
-  const score = calcularScore(historicoReal)
+  const rigor = calcularRigor(historicoReal)
 
-  // Nota pedagógica via IA (best-effort — o relatório funciona sem ela)
-  const nota = await gerarNotaPedagogica({ avatar, historico: historicoReal, score }).catch(() => null)
+  // Nota pedagógica via IA (best-effort — o relatório funciona sem ela; traz a cobertura_metodologia)
+  const nota = await gerarNotaPedagogica({ avatar, historico: historicoReal, score: rigor }).catch(() => null)
 
   const relatorio = construirRelatorio({
     avatarNome: `${avatar.nome} · ${avatar.idade} anos`,
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     .from('sessoes_anamnese')
     .update({
       estado: 'concluida',
-      score_final: score,
+      score_final: relatorio.score,
       relatorio,
       duracao_minutos: duracao_minutos ?? sessao.duracao_minutos ?? 30,
     })

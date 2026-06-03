@@ -179,8 +179,15 @@ Vais gerar a parte qualitativa do relatório final. Responde APENAS com JSON vá
     { "turno": <n>, "pergunta_terapeuta": "<o que disse>", "o_que_aconteceu": "<porque foi um erro>", "o_que_deveria_ter_acontecido": "<a abordagem latente correcta>" }
   ],
   "proxima_sessao_sugerida": "<qual avatar/foco trabalhar a seguir>",
-  "nota_pedagogica": "<um parágrafo sobre o padrão geral observado no terapeuta>"
+  "nota_pedagogica": "<um parágrafo sobre o padrão geral observado no terapeuta>",
+  "cobertura_metodologia": { "simbolo": <true|false>, "episodio": <true|false>, "corpo": <true|false>, "latente": <true|false> }
 }
+
+cobertura_metodologia — marca true APENAS quando o terapeuta REALMENTE explorou o passo (não só tentou):
+- simbolo: pediu o SIGNIFICADO INTERIOR de um símbolo/palavra (o que representa para o cliente), não a descrição externa.
+- episodio: ancorou num episódio/momento concreto e específico (não em generalizações).
+- corpo: explorou a sensação corporal/somática associada.
+- latente: entrou no conteúdo latente (o que o cliente vivia por dentro), em vez de ficar no manifesto.
 
 Regras: máximo 3 momentos_criticos (os mais importantes). Máximo 4 pontos_positivos. Português de Portugal, sem gerúndios, sem linguagem clínica. Sê concreto e honesto, sem condescendência.`
 }
