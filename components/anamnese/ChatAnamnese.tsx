@@ -71,7 +71,12 @@ export function ChatAnamnese({ sessao }: Props) {
   }, [])
 
   // ── TTS pontual (voz do Supervisor + replays) ────────────────────────────────
-  const speak = useCallback(async (endpoint: string, payload: Record<string, unknown>, role: SpeakingRole, onStart?: () => void) => {
+  const speak = useCallback(async (
+    endpoint: string,
+    payload: Record<string, unknown>,
+    role: SpeakingRole,
+    opts?: { onStart?: () => void; pauseMic?: boolean },
+  ) => {
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -85,10 +90,11 @@ export function ChatAnamnese({ sessao }: Props) {
       if (!res.ok) return
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
-      if (audioRef.current) audioRef.current.pause() // guarda de sobreposição
+      if (audioRef.current) audioRef.current.pause() // guarda de sobreposição (pára o áudio anterior)
       await new Promise<void>(resolve => {
         const audio = new Audio(url)
         audioRef.current = audio
+        if (opts?.pauseMic) gemini.pauseCapture() // corta o mic enquanto ESTE áudio toca (anti-eco)
         setSpeakingRole(role)
         let settled = false
         let started = false
@@ -98,19 +104,26 @@ export function ChatAnamnese({ sessao }: Props) {
           settled = true
           clearTimeout(timer)
           URL.revokeObjectURL(url)
-          if (audioRef.current === audio) { audioRef.current = null; setSpeakingRole(null) }
+          // isCurrent: só limpa estado e RE-ARMA o mic se ESTE for o áudio activo
+          // (um áudio anterior, parado pela guarda de sobreposição, não re-arma prematuramente).
+          if (audioRef.current === audio) {
+            audioRef.current = null
+            setSpeakingRole(null)
+            if (opts?.pauseMic) gemini.resumeCapture()
+          }
           resolve()
         }
-        audio.onplaying = () => { if (!started) { started = true; onStart?.() } } // texto sincronizado com o início real da fala
+        audio.onplaying = () => { if (!started) { started = true; opts?.onStart?.() } } // texto sincronizado com o início real da fala
         audio.onended = finish
         audio.onpause = finish
         audio.onerror = finish
-        timer = setTimeout(finish, 60000) // segurança: resolve sempre, mesmo se o áudio nunca sinalizar
+        timer = setTimeout(finish, 60000) // segurança: resolve (e re-arma o mic) sempre, mesmo se o áudio nunca sinalizar
         audio.play().catch(finish)
       })
     } catch {
       setSpeakingRole(null)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Modo TEXTO: turno + Supervisor (sem áudio) — INTOCADO ────────────────────
@@ -208,15 +221,10 @@ export function ChatAnamnese({ sessao }: Props) {
         setTurns(prev => prev.map(t => (t.turno === turnoFinal
           ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto } : t)))
       }
-      gemini.pauseCapture() // corta o mic enquanto o Supervisor fala (anti-eco)
-      try {
-        await speak('/api/tts', { text: texto }, 'supervisor', mostrarTexto) // texto sincronizado com onplaying
-      } finally {
-        mostrarTexto()         // fallback se o áudio falhar
-        gemini.resumeCapture() // re-arma sempre
-      }
+      // speak() trata do mic (pauseMic): pausa ao começar a falar, re-arma no fim — guardado por isCurrent.
+      await speak('/api/tts', { text: texto }, 'supervisor', { onStart: mostrarTexto, pauseMic: true })
+      mostrarTexto() // fallback: garante o texto mesmo se o áudio falhar
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.id, speak])
 
   // Deltas de transcrição do Gemini: input = terapeuta, output = Carolina.
@@ -321,15 +329,13 @@ export function ChatAnamnese({ sessao }: Props) {
 
   const replayCliente = useCallback((texto: string) => {
     if (!texto) return
-    gemini.pauseCapture()
-    void speak('/api/anamnese/tts', { text: texto, voice: voz }, 'cliente').finally(() => gemini.resumeCapture())
-  }, [speak, voz, gemini])
+    void speak('/api/anamnese/tts', { text: texto, voice: voz }, 'cliente', { pauseMic: true })
+  }, [speak, voz])
 
   const replaySupervisor = useCallback((texto: string) => {
     if (!texto) return
-    gemini.pauseCapture()
-    void speak('/api/tts', { text: texto }, 'supervisor').finally(() => gemini.resumeCapture())
-  }, [speak, gemini])
+    void speak('/api/tts', { text: texto }, 'supervisor', { pauseMic: true })
+  }, [speak])
 
   const handleConcluir = useCallback(async () => {
     setIsGeneratingReport(true)
