@@ -45,6 +45,7 @@ export function ChatAnamnese({ sessao }: Props) {
   const [liveUserSpeech, setLiveUserSpeech] = useState('')
   const [voiceErro, setVoiceErro] = useState('')
   const [supervisorPensandoTurno, setSupervisorPensandoTurno] = useState<number | null>(null)
+  const [processandoSupervisor, setProcessandoSupervisor] = useState(false) // consulta ao Supervisor em curso → mic em espera
 
   const audioRef = useRef<HTMLAudioElement | null>(null) // áudio pontual (Supervisor / replays)
   // Segmentação de turnos a partir da transcrição do Gemini (input=terapeuta, output=Carolina)
@@ -57,6 +58,7 @@ export function ChatAnamnese({ sessao }: Props) {
   const pauseCaptureRef = useRef<(() => void) | null>(null)
   const resumeCaptureRef = useRef<(() => void) | null>(null)
   const audioStartedRef = useRef(false)
+  const processandoRef = useRef(false) // espelho de processandoSupervisor para os closures (handlePlaybackEnd)
 
   const concluida = sessao.estado === 'concluida' || relatorio !== null
 
@@ -201,35 +203,44 @@ export function ChatAnamnese({ sessao }: Props) {
       if (!isAbertura && turnoFinal !== tempTurno) {
         setTurns(prev => prev.map(t => (t.turno === tempTurno ? { ...t, turno: turnoFinal } : t)))
       }
-    } catch {
-      return
-    }
 
-    if (isAbertura) return // abertura não tem Supervisor (não houve pergunta do terapeuta)
+      if (isAbertura) return // abertura não tem Supervisor (resume vem do onPlaybackEnd)
 
-    // Supervisor (Claude) em paralelo — fora do caminho de áudio da Carolina
-    setSupervisorPensandoTurno(turnoFinal)
-    const sup = await fetch('/api/anamnese/supervisor', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessao_id: sessao.id, turno: turnoFinal }),
-    }).then(r => (r.ok ? (r.json() as Promise<{ intervencao?: IntervencaoResult }>) : null)).catch(() => null)
-    setSupervisorPensandoTurno(null)
+      // Supervisor (Claude) — mic em ESPERA ("A analisar…") durante a consulta
+      setSupervisorPensandoTurno(turnoFinal)
+      const sup = await fetch('/api/anamnese/supervisor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessao_id: sessao.id, turno: turnoFinal }),
+      }).then(r => (r.ok ? (r.json() as Promise<{ intervencao?: IntervencaoResult }>) : null)).catch(() => null)
+      setSupervisorPensandoTurno(null)
 
-    const intervencao = sup?.intervencao
-    if (intervencao?.intervir && intervencao.intervencao && intervencao.tipo_erro) {
-      const tipoErro = intervencao.tipo_erro
-      const texto = intervencao.intervencao
-      let mostrado = false
-      const mostrarTexto = () => {
-        if (mostrado) return
-        mostrado = true
-        setTurns(prev => prev.map(t => (t.turno === turnoFinal
-          ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto } : t)))
+      const intervencao = sup?.intervencao
+      if (intervencao?.intervir && intervencao.intervencao && intervencao.tipo_erro) {
+        const tipoErro = intervencao.tipo_erro
+        const texto = intervencao.intervencao
+        let mostrado = false
+        const mostrarTexto = () => {
+          if (mostrado) return
+          mostrado = true
+          setTurns(prev => prev.map(t => (t.turno === turnoFinal
+            ? { ...t, supervisor_interveio: true, tipo_erro: tipoErro, intervencao_supervisor: texto } : t)))
+        }
+        // speak() trata do mic (pauseMic): pausa ao começar a falar, re-arma no fim — guardado por isCurrent.
+        await speak('/api/tts', { text: texto }, 'supervisor', { onStart: mostrarTexto, pauseMic: true })
+        mostrarTexto() // fallback: garante o texto mesmo se o áudio falhar
       }
-      // speak() trata do mic (pauseMic): pausa ao começar a falar, re-arma no fim — guardado por isCurrent.
-      await speak('/api/tts', { text: texto }, 'supervisor', { onStart: mostrarTexto, pauseMic: true })
-      mostrarTexto() // fallback: garante o texto mesmo se o áudio falhar
+    } catch {
+      /* protótipo: silencioso */
+    } finally {
+      // Turno real: fim de TODO o processamento pós-Carolina (consulta + voz do Supervisor) →
+      // limpa a espera e re-arma o mic (turno do terapeuta). Cobre todas as saídas (402/!ok/erro/normal).
+      if (!isAbertura) {
+        setSupervisorPensandoTurno(null)
+        processandoRef.current = false
+        setProcessandoSupervisor(false)
+        resumeCaptureRef.current?.()
+      }
     }
   }, [sessao.id, speak])
 
@@ -264,18 +275,28 @@ export function ChatAnamnese({ sessao }: Props) {
     turnStartRef.current = 0
     setLiveUserSpeech('')
     setSpeakingRole(null)
-    // Resume do mic: se a Carolina FALOU, vem do onPlaybackEnd (após a CAUDA drenar — evita o teu
-    // arranque sobrepor-se à voz residual dela). Se não houve áudio dela, re-arma já.
-    if (!audioStartedRef.current) resumeCaptureRef.current?.()
+    if (terapeuta) {
+      // Turno real → vai consultar o Supervisor: mic em ESPERA ("A analisar…", não "A escutar")
+      // até todo o processamento terminar (resume no finally do registarTurnoVoz).
+      processandoRef.current = true
+      setProcessandoSupervisor(true)
+      pauseCaptureRef.current?.()
+    } else if (!audioStartedRef.current) {
+      // abertura/turno sem áudio da Carolina → não haverá onPlaybackEnd; re-arma já.
+      resumeCaptureRef.current?.()
+    }
+    // (turno real com áudio: resume vem do onPlaybackEnd/finally; abertura com áudio: do onPlaybackEnd)
     if (!terapeuta && !avatarTxt) return
     void registarTurnoVoz(terapeuta, avatarTxt, dur)
   }, [registarTurnoVoz])
 
   // Carolina terminou de TOCAR (cauda drenada) → re-arma o mic. Só se o Supervisor não estiver a falar.
   const handlePlaybackEnd = useCallback(() => {
-    console.log('[mic] playbackEnd (cauda drenada) supervisorAudio=' + !!audioRef.current) // TEMP debug
+    console.log('[mic] playbackEnd (cauda drenada) supervisorAudio=' + !!audioRef.current + ' processando=' + processandoRef.current) // TEMP debug
     audioStartedRef.current = false
-    if (!audioRef.current) resumeCaptureRef.current?.()
+    // Re-arma só se nada mais está a decorrer (Supervisor a analisar/falar). Caso contrário, o
+    // resume vem do finally do registarTurnoVoz (após a consulta + voz do Supervisor).
+    if (!processandoRef.current && !audioRef.current) resumeCaptureRef.current?.()
   }, [])
 
   const handleVoiceError = useCallback((m: string) => {
@@ -417,6 +438,7 @@ export function ChatAnamnese({ sessao }: Props) {
   const statusVoz =
     speakingRole === 'cliente' ? `${avatar?.nome ?? 'O cliente'} está a falar…`
       : speakingRole === 'supervisor' ? 'Supervisor a falar…'
+      : processandoSupervisor ? 'Supervisor a analisar…'
       : gemini.state === 'reconnecting' ? 'A reconectar…'
       : 'A escutar — fala agora'
 
@@ -458,6 +480,7 @@ export function ChatAnamnese({ sessao }: Props) {
               <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
                 {speakingRole === 'cliente' ? `${avatar?.nome} está a falar…`
                   : speakingRole === 'supervisor' ? 'Supervisor a falar…'
+                  : processandoSupervisor ? 'Supervisor a analisar…'
                   : `${avatar?.area} · Anamnese supervisionada`}
               </p>
             </div>
@@ -613,11 +636,11 @@ export function ChatAnamnese({ sessao }: Props) {
               {(gemini.state === 'connected' || gemini.state === 'reconnecting') && (
                 <div className="flex items-center gap-4">
                   <div className="relative flex items-center justify-center w-10 h-10">
-                    {!speakingRole && (
+                    {!speakingRole && !processandoSupervisor && (
                       <span className="absolute inset-0 rounded-full animate-ping opacity-30" style={{ background: cor }} />
                     )}
                     <span className="relative z-10 flex items-center justify-center w-8 h-8 rounded-full text-base text-white" style={{ background: cor, transition: 'background 0.3s' }}>
-                      {speakingRole ? '🔊' : '🎤'}
+                      {speakingRole ? '🔊' : processandoSupervisor ? '⏳' : '🎤'}
                     </span>
                   </div>
                   <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{statusVoz}</span>
