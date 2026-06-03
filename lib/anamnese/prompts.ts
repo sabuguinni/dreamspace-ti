@@ -19,10 +19,14 @@ Sem gerúndios. Sem linguagem clínica.`
 
 // ─── Avatar (cliente em anamnese) ───────────────────────────────────────────────
 
-export function buildAvatarSystemPrompt(avatar: AnamneseAvatar): string {
+export function buildAvatarSystemPrompt(avatar: AnamneseAvatar, opts?: { voz?: boolean }): string {
   const narrativa = avatar.narrativaManifesta.map(n => `- ${n}`).join('\n')
+  // Mesma persona, registo certo por modo: voz fala, texto escreve.
+  const instrucaoLingua = opts?.voz
+    ? 'INSTRUÇÃO CRÍTICA: Falas EXCLUSIVAMENTE em português de Portugal (PT-PT). É terminantemente proibido usar português do Brasil.'
+    : 'INSTRUÇÃO CRÍTICA: Escreve EXCLUSIVAMENTE em português de Portugal (PT-PT). É terminantemente proibido usar português do Brasil. Cada resposta será verificada — qualquer brasileirismo é uma falha grave.'
 
-  return `INSTRUÇÃO CRÍTICA: Escreve EXCLUSIVAMENTE em português de Portugal (PT-PT). É terminantemente proibido usar português do Brasil. Cada resposta será verificada — qualquer brasileirismo é uma falha grave.
+  return `${instrucaoLingua}
 
 ${PT_PT_BLOCK}
 
@@ -68,7 +72,7 @@ export const AVATAR_ABERTURA_TRIGGER =
 export function buildAvatarVoicePrompt(avatar: AnamneseAvatar): string {
   return `[MODO VOZ] Estás numa sessão de VOZ. Falas de forma natural, pausada e humana, em frases curtas. Sem markdown, sem listas, sem enumerações.
 
-${buildAvatarSystemPrompt(avatar)}`
+${buildAvatarSystemPrompt(avatar, { voz: true })}`
 }
 
 // ─── Supervisor de Anamnese ─────────────────────────────────────────────────────
