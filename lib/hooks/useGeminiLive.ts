@@ -185,11 +185,15 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
 
   const startAudioCapture = useCallback(
     (context: AudioContext, stream: MediaStream, socket: Socket) => {
+      console.log('[mic] startAudioCapture — pipeline iniciada, paused=' + capturePausedRef.current) // TEMP debug
+      let lastMicLog = 0
       const source = context.createMediaStreamSource(stream)
       const processor = context.createScriptProcessor(4096, 1, 1)
       processorRef.current = processor
 
       processor.onaudioprocess = (e) => {
+        const now = Date.now()
+        if (now - lastMicLog > 1500) { lastMicLog = now; console.log('[mic] tick paused=' + capturePausedRef.current + ' connected=' + socket.connected) } // TEMP debug
         if (!socket.connected || capturePausedRef.current) return
         const inputData = e.inputBuffer.getChannelData(0)
         const resampled = resampleAudio(inputData, context.sampleRate, 16000)
@@ -378,9 +382,9 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
   const clearTranscript = useCallback(() => { transcriptRef.current = [] }, [])
 
   /** Pause mic capture while AI audio is playing (prevents echo). */
-  const pauseCapture = useCallback(() => { capturePausedRef.current = true }, [])
+  const pauseCapture = useCallback(() => { console.log('[mic] pauseCapture'); capturePausedRef.current = true }, [])
   /** Resume mic capture after AI audio finishes. */
-  const resumeCapture = useCallback(() => { capturePausedRef.current = false }, [])
+  const resumeCapture = useCallback(() => { console.log('[mic] resumeCapture'); capturePausedRef.current = false }, [])
   /** Clear the STT accumulation buffer (e.g. after manual send in supervisor_stt mode). */
   const clearSttBuffer = useCallback(() => { sttBufferRef.current = '' }, [])
   /** Envia um turno de TEXTO ao Gemini (ex.: trigger de abertura no modo avatar). */

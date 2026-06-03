@@ -94,7 +94,7 @@ export function ChatAnamnese({ sessao }: Props) {
       await new Promise<void>(resolve => {
         const audio = new Audio(url)
         audioRef.current = audio
-        if (opts?.pauseMic) gemini.pauseCapture() // corta o mic enquanto ESTE áudio toca (anti-eco)
+        if (opts?.pauseMic) { console.log('[mic] speak pauseMic role=' + role); gemini.pauseCapture() } // corta o mic enquanto ESTE áudio toca (anti-eco)
         setSpeakingRole(role)
         let settled = false
         let started = false
@@ -106,7 +106,9 @@ export function ChatAnamnese({ sessao }: Props) {
           URL.revokeObjectURL(url)
           // isCurrent: só limpa estado e RE-ARMA o mic se ESTE for o áudio activo
           // (um áudio anterior, parado pela guarda de sobreposição, não re-arma prematuramente).
-          if (audioRef.current === audio) {
+          const isCurrent = audioRef.current === audio
+          console.log('[mic] speak.finish isCurrent=' + isCurrent + ' pauseMic=' + !!opts?.pauseMic) // TEMP debug
+          if (isCurrent) {
             audioRef.current = null
             setSpeakingRole(null)
             if (opts?.pauseMic) gemini.resumeCapture()
