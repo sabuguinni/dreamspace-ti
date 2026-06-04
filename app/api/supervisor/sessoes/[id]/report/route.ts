@@ -155,6 +155,12 @@ Avalia o desempenho do terapeuta nesta sessão.`
       },
       ordem,
     })
+
+    // Materializa o score na sessão — usado pelo gate de desbloqueio da Anamnese (score > 70).
+    await supabase
+      .from('sessoes_supervisor')
+      .update({ score: report.overallScore })
+      .eq('id', id)
   } catch (err) {
     // Non-blocking — return report even if persist fails
     console.error('[supervisor/report] Persist failed:', err)

@@ -9,6 +9,11 @@ export interface AnamneseEstado {
   desbloqueada: boolean
   sessoesConcluidas: number
   necessarias: number
+  isAdmin?: boolean
+}
+
+export interface SessaoAnamneseAdmin extends SessaoAnamnese {
+  profiles: { nome_completo: string; email: string } | null
 }
 
 // ── Estado de desbloqueio ──────────────────────────────────────────────────────
@@ -35,6 +40,22 @@ export function useSessoesAnamnese() {
       const data = await res.json() as { sessoes: SessaoAnamnese[] }
       return data.sessoes ?? []
     },
+  })
+}
+
+// ── Lista cross-user (admin/formador) ────────────────────────────────────────
+
+export function useSessoesAnamneseAdmin() {
+  return useQuery({
+    queryKey: [...QK, 'admin'],
+    queryFn: async (): Promise<SessaoAnamneseAdmin[]> => {
+      const res = await fetch('/api/anamnese/admin/sessoes')
+      if (res.status === 403) throw new Error('forbidden')
+      if (!res.ok) throw new Error('Erro ao carregar sessões')
+      const data = await res.json() as { sessoes: SessaoAnamneseAdmin[] }
+      return data.sessoes ?? []
+    },
+    retry: false,
   })
 }
 

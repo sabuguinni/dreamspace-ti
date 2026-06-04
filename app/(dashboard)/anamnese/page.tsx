@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useAnamneseEstado } from '@/lib/hooks/useAnamnese'
 import { AnamneseLock } from '@/components/anamnese/AnamneseLock'
 import { AvatarSelectorAnamnese } from '@/components/anamnese/AvatarSelectorAnamnese'
@@ -12,13 +13,33 @@ export default function AnamnesePage() {
   return (
     <div className="max-w-3xl space-y-6 animate-fade-in">
       {/* Cabeçalho */}
-      <div>
-        <h1 className="text-2xl font-medium" style={{ fontFamily: 'var(--font-lora)', color: 'var(--primary)' }}>
-          Anamnese Supervisionada
-        </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
-          A narrativa é a superfície. O Supervisor garante que a usas como portal para o interior.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-medium" style={{ fontFamily: 'var(--font-lora)', color: 'var(--primary)' }}>
+            Anamnese Supervisionada
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
+            A narrativa é a superfície. O Supervisor garante que a usas como portal para o interior.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href="/anamnese/historico"
+            className="text-xs px-3 h-8 inline-flex items-center rounded-md border transition-colors"
+            style={{ color: 'var(--muted-foreground)', borderColor: 'var(--border)' }}
+          >
+            Histórico
+          </Link>
+          {estado?.isAdmin && (
+            <Link
+              href="/anamnese/admin"
+              className="text-xs px-3 h-8 inline-flex items-center rounded-md border transition-colors"
+              style={{ color: '#B8924A', borderColor: '#C9A96155', background: '#3D2B0010' }}
+            >
+              Alunos
+            </Link>
+          )}
+        </div>
       </div>
 
       <TreinoTabs />

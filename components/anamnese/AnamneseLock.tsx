@@ -27,8 +27,8 @@ export function AnamneseLock({ sessoesConcluidas, necessarias }: Props) {
             Anamnese Supervisionada
           </h2>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
-            Esta funcionalidade fica disponível após {necessarias} sessões concluídas no Supervisor de Sonhos.
-            {' '}Tens <span className="font-medium" style={{ color: 'var(--foreground)' }}>{sessoesConcluidas}</span> {sessoesConcluidas === 1 ? 'sessão concluída' : 'sessões concluídas'}.
+            Esta funcionalidade fica disponível após {necessarias} sessões do Supervisor de Sonhos com avaliação acima de 70.
+            {' '}Tens <span className="font-medium" style={{ color: 'var(--foreground)' }}>{sessoesConcluidas}</span> {sessoesConcluidas === 1 ? 'sessão com score > 70' : 'sessões com score > 70'}.
           </p>
         </div>
       </div>
@@ -39,7 +39,7 @@ export function AnamneseLock({ sessoesConcluidas, necessarias }: Props) {
           <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: '#C9A961' }} />
         </div>
         <p className="text-xs text-right" style={{ color: 'var(--muted-foreground)' }}>
-          {sessoesConcluidas} / {necessarias} sessões
+          {sessoesConcluidas} / {necessarias} sessões com score &gt; 70
         </p>
       </div>
 

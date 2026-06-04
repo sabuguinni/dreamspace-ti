@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   const avatar = getAnamneseAvatar(parsed.data.avatar_id)
   if (!avatar) return NextResponse.json({ error: 'Avatar não encontrado' }, { status: 404 })
 
-  // ── Pré-requisito de desbloqueio: 10 sessões de Supervisor de Sonhos concluídas ──
+  // ── Pré-requisito de desbloqueio: 10 sessões do Supervisor de Sonhos com score > 70 ──
   const isAdmin = (await lookupUser(user.email ?? '').catch(() => null))?.isAdmin ?? false
 
   const { count: concluidas } = await supabase
@@ -56,6 +56,7 @@ export async function POST(req: Request) {
     .select('id', { count: 'exact', head: true })
     .eq('user_id', user.id)
     .eq('estado', 'concluida')
+    .gt('score', 70)
 
   if (!isAdmin && (concluidas ?? 0) < ANAMNESE_DESBLOQUEIO_MINIMO) {
     return NextResponse.json(
