@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { lookupUser, debit } from '@/lib/aiCreditsClient'
+import { extractFlagMarkers } from '@/lib/supervisor/flags'
 import { z } from 'zod'
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -45,7 +46,16 @@ REGRAS ABSOLUTAS:
 Quando o terapeuta partilha uma análise de sonho:
 Acolhe brevemente o que foi dito. Pergunta sobre elementos do sonho não explorados. Questiona o método terapêutico escolhido e porque esse em vez de outro. Pede a ligação entre o sonho e a vida concreta do acompanhado. Nunca resolves nem interpretas — apenas abres novas perspectivas através de perguntas.
 
-Se o terapeuta pedir directamente uma interpretação do sonho: recusas com gentileza e devolves a pergunta a ele.`
+Se o terapeuta pedir directamente uma interpretação do sonho: recusas com gentileza e devolves a pergunta a ele.
+
+DETECÇÃO DE ERROS (OCULTA — nunca falada):
+Se identificares um destes erros do terapeuta, acrescenta no FIM da tua resposta um marcador oculto por cada erro, exactamente nesta forma: [[FLAG:código]]. Estes marcadores são removidos automaticamente antes de seres ouvido — NUNCA os leias em voz alta nem os menciones. Códigos válidos:
+[[FLAG:interpretacao_prematura]] — saltou para o significado do sonho cedo demais
+[[FLAG:heroismo_terapeutico]] — tenta resolver o sonho em vez de ficar com ele
+[[FLAG:projeccao_terapeuta]] — a leitura diz mais sobre o terapeuta do que sobre o acompanhado
+[[FLAG:ausencia_aterragem]] — termina em insight sem ponte para a vida concreta
+[[FLAG:lente_unica]] — aplica sempre o mesmo método ou lente
+Se não houver erro, não acrescentes marcador nenhum.`
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -64,7 +74,7 @@ export async function POST(req: Request) {
   // Load session for context + verify ownership
   const { data: sessao } = await supabase
     .from('sessoes_supervisor')
-    .select('sonho_texto, metodo_escolhido')
+    .select('sonho_texto, metodo_escolhido, flags_detectados')
     .eq('id', sessionId)
     .eq('user_id', user.id)
     .single()
@@ -113,6 +123,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Erro ao gerar resposta. Tenta daqui a pouco.' }, { status: 503 })
   }
 
+  // Extrai marcadores [[FLAG:código]] ocultos — o texto limpo é o que se fala/mostra/persiste.
+  const { flags, clean: cleanText } = extractFlagMarkers(claudeText)
+
   // ── ElevenLabs TTS ─────────────────────────────────────────────────────────
   const elevenKey = process.env.ELEVENLABS_API_KEY ?? ''
   let audioBase64: string
@@ -127,7 +140,7 @@ export async function POST(req: Request) {
           Accept: 'audio/mpeg',
         },
         body: JSON.stringify({
-          text: claudeText,
+          text: cleanText,
           model_id: 'eleven_multilingual_v2',
           voice_settings: { stability: 0.5, similarity_boost: 0.75 },
         }),
@@ -144,6 +157,36 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Erro ao sintetizar voz. Tenta daqui a pouco.' }, { status: 503 })
   }
 
+  // ── Persistir o turno (terapeuta + supervisor) em mensagens, com flags ─────────
+  // Espelha o caminho de texto: cada turno fica em `mensagens` ao vivo, com
+  // metadata.flags_detectados no turno do supervisor (ocorrência-a-ocorrência → CAP=2).
+  // Best-effort: o áudio já foi gerado; se a persistência falhar, devolvemos na mesma.
+  try {
+    const { data: maxRow } = await supabase
+      .from('mensagens')
+      .select('ordem')
+      .eq('sessao_supervisor_id', sessionId)
+      .order('ordem', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const baseOrdem = maxRow?.ordem ?? 0
+
+    await supabase.from('mensagens').insert([
+      { sessao_supervisor_id: sessionId, papel: 'user', conteudo: text, metadata: { source: 'voice' }, ordem: baseOrdem + 1 },
+      { sessao_supervisor_id: sessionId, papel: 'assistant', conteudo: cleanText, metadata: { source: 'voice', flags_detectados: flags }, ordem: baseOrdem + 2 },
+    ])
+
+    if (flags.length > 0) {
+      const existingFlags: string[] = sessao.flags_detectados ?? []
+      await supabase
+        .from('sessoes_supervisor')
+        .update({ flags_detectados: [...new Set([...existingFlags, ...flags])] })
+        .eq('id', sessionId)
+    }
+  } catch (persistErr) {
+    console.error('[voice-turn] Falha ao persistir turno de voz:', persistErr)
+  }
+
   // ── Debit credits (non-blocking) ───────────────────────────────────────────
   if (lmsUserId && !isAdminUser) {
     debit(lmsUserId, 'claude_supervisor', 1, `Supervisor voz turno sessão ${sessionId.slice(0, 8)}`).catch(err => {
@@ -151,5 +194,5 @@ export async function POST(req: Request) {
     })
   }
 
-  return NextResponse.json({ text: claudeText, audio: audioBase64 })
+  return NextResponse.json({ text: cleanText, audio: audioBase64 })
 }

@@ -549,9 +549,8 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
         if (hugoAudioRef.current) hugoAudioRef.current.pause()
         gemini.disconnect()
 
-        patchBody.voice_transcript = voiceTranscriptLines.map(l =>
-          l.role === 'user' ? `[Terapeuta]: ${l.text}` : `[Supervisor]: ${l.text}`
-        )
+        // O voice-turn já persiste cada turno em `mensagens` ao vivo (com flags).
+        // Não reenviamos voice_transcript aqui para não duplicar mensagens.
         const durationMs = voiceStartRef.current ? Date.now() - voiceStartRef.current : 0
         patchBody.voice_duration_minutes = Math.max(1, Math.ceil(durationMs / 60000))
       }

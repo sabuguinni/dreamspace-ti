@@ -3,29 +3,13 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { SUPERVISOR_SYSTEM_PROMPT } from '@/lib/anthropic/supervisor-prompt'
 import { enforceVocabulary } from '@/lib/anthropic/vocabulary-filter'
+import { detectFlags } from '@/lib/supervisor/flags'
 import { z } from 'zod'
 
 const StreamSchema = z.object({
   sessao_id: z.string().uuid(),
   mensagem: z.string().min(1).max(20000),
 })
-
-const FLAG_MAP: Array<{ keywords: string[]; flag: string }> = [
-  { keywords: ['interpretação prematura', 'interpretacao prematura'], flag: 'interpretacao_prematura' },
-  { keywords: ['heroísmo terapêutico', 'heroismo terapeutico'], flag: 'heroismo_terapeutico' },
-  { keywords: ['projecção', 'projeccao', 'projeção'], flag: 'projeccao_terapeuta' },
-  { keywords: ['aterragem'], flag: 'ausencia_aterragem' },
-  { keywords: ['única lente', 'unica lente'], flag: 'lente_unica' },
-]
-
-function detectFlags(text: string): string[] {
-  const lower = text.toLowerCase()
-  const found: string[] = []
-  for (const { keywords, flag } of FLAG_MAP) {
-    if (keywords.some(k => lower.includes(k))) found.push(flag)
-  }
-  return found
-}
 
 function buildAnthropicMessages(
   sessao: { sonho_texto: string; caso_descricao: string | null },
