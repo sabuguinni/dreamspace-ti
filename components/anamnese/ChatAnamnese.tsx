@@ -100,7 +100,7 @@ export function ChatAnamnese({ sessao }: Props) {
       await new Promise<void>(resolve => {
         const audio = new Audio(url)
         audioRef.current = audio
-        if (opts?.pauseMic) { console.log('[mic] speak pauseMic role=' + role); gemini.pauseCapture() } // corta o mic enquanto ESTE áudio toca (anti-eco)
+        if (opts?.pauseMic) gemini.pauseCapture() // corta o mic enquanto ESTE áudio toca (anti-eco)
         setSpeakingRole(role)
         let settled = false
         let started = false
@@ -113,7 +113,6 @@ export function ChatAnamnese({ sessao }: Props) {
           // isCurrent: só limpa estado e RE-ARMA o mic se ESTE for o áudio activo
           // (um áudio anterior, parado pela guarda de sobreposição, não re-arma prematuramente).
           const isCurrent = audioRef.current === audio
-          console.log('[mic] speak.finish isCurrent=' + isCurrent + ' pauseMic=' + !!opts?.pauseMic) // TEMP debug
           if (isCurrent) {
             audioRef.current = null
             setSpeakingRole(null)
@@ -292,7 +291,6 @@ export function ChatAnamnese({ sessao }: Props) {
 
   // Carolina terminou de TOCAR (cauda drenada) → re-arma o mic. Só se o Supervisor não estiver a falar.
   const handlePlaybackEnd = useCallback(() => {
-    console.log('[mic] playbackEnd (cauda drenada) supervisorAudio=' + !!audioRef.current + ' processando=' + processandoRef.current) // TEMP debug
     audioStartedRef.current = false
     // Re-arma só se nada mais está a decorrer (Supervisor a analisar/falar). Caso contrário, o
     // resume vem do finally do registarTurnoVoz (após a consulta + voz do Supervisor).

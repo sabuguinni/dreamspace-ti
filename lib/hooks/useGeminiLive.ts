@@ -189,15 +189,11 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
 
   const startAudioCapture = useCallback(
     (context: AudioContext, stream: MediaStream, socket: Socket) => {
-      console.log('[mic] startAudioCapture — pipeline iniciada, paused=' + capturePausedRef.current) // TEMP debug
-      let lastMicLog = 0
       const source = context.createMediaStreamSource(stream)
       const processor = context.createScriptProcessor(4096, 1, 1)
       processorRef.current = processor
 
       processor.onaudioprocess = (e) => {
-        const now = Date.now()
-        if (now - lastMicLog > 1500) { lastMicLog = now; console.log('[mic] tick paused=' + capturePausedRef.current + ' connected=' + socket.connected) } // TEMP debug
         if (!socket.connected || capturePausedRef.current) return
         const inputData = e.inputBuffer.getChannelData(0)
         const resampled = resampleAudio(inputData, context.sampleRate, 16000)
@@ -302,7 +298,6 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
         // User speech transcription
         const inputTranscription = content.inputTranscription as { text?: string } | undefined
         if (inputTranscription?.text) {
-          console.log('[stt] input:', inputTranscription.text) // TEMP debug
           if (isSttMode) {
             // Acumula a transcrição. Os deltas do Gemini já trazem os espaços correctos —
             // NÃO acrescentar ' ' (fragmentava palavras: "Entã o , quan tas").
@@ -318,7 +313,6 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
         if (!isSttMode) {
           const outputTranscription = content.outputTranscription as { text?: string } | undefined
           if (outputTranscription?.text) {
-            console.log('[stt] output(avatar):', outputTranscription.text) // TEMP debug
             o.onTranscription(outputTranscription.text, false)
             transcriptRef.current.push(`[Avatar]: ${outputTranscription.text}`)
           }
@@ -388,9 +382,9 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
   const clearTranscript = useCallback(() => { transcriptRef.current = [] }, [])
 
   /** Pause mic capture while AI audio is playing (prevents echo). */
-  const pauseCapture = useCallback(() => { console.log('[mic] pauseCapture'); capturePausedRef.current = true }, [])
+  const pauseCapture = useCallback(() => { capturePausedRef.current = true }, [])
   /** Resume mic capture after AI audio finishes. */
-  const resumeCapture = useCallback(() => { console.log('[mic] resumeCapture'); capturePausedRef.current = false }, [])
+  const resumeCapture = useCallback(() => { capturePausedRef.current = false }, [])
   /** Clear the STT accumulation buffer (e.g. after manual send in supervisor_stt mode). */
   const clearSttBuffer = useCallback(() => { sttBufferRef.current = '' }, [])
   /** Envia um turno de TEXTO ao Gemini (ex.: trigger de abertura no modo avatar). */
