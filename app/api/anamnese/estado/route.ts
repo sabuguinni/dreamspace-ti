@@ -9,11 +9,13 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
+  // Desbloqueio exige sessões CONCLUÍDAS com score > 70 (não basta concluir).
   const { count } = await supabase
     .from('sessoes_supervisor')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', user.id)
     .eq('estado', 'concluida')
+    .gt('score', 70)
 
   const sessoesConcluidas = count ?? 0
 
@@ -24,5 +26,6 @@ export async function GET() {
     desbloqueada: isAdmin || sessoesConcluidas >= ANAMNESE_DESBLOQUEIO_MINIMO,
     sessoesConcluidas,
     necessarias: ANAMNESE_DESBLOQUEIO_MINIMO,
+    isAdmin,
   })
 }

@@ -17,6 +17,7 @@ const mariana: AnamneseAvatar = {
   nome: 'Mariana',
   idade: 32,
   area: 'Ansiedade Generalizada',
+  genero: 'f',
   resistencias:
     'racionalizas a infância e minimizas o controlo materno como "era só preocupação"; quando a emoção aperta, mudas para o presente ou para soluções práticas.',
   narrativaManifesta: [
@@ -65,6 +66,7 @@ const ricardo: AnamneseAvatar = {
   nome: 'Ricardo',
   idade: 45,
   area: 'Depressão e Perda de Sentido',
+  genero: 'm',
   resistencias:
     'falas da carreira para não falar de ti; usas "sempre fui assim" como muro; desvias para a função (filhos, mulher) quando a pergunta toca o interior.',
   narrativaManifesta: [
@@ -108,6 +110,7 @@ const sofia: AnamneseAvatar = {
   nome: 'Sofia',
   idade: 27,
   area: 'Fobias e Trauma',
+  genero: 'f',
   resistencias:
     'queres "ultrapassar" depressa; mudas de assunto quando a pergunta se aproxima da violência; intelectualizas ("sei que o passado influencia o presente").',
   narrativaManifesta: [
@@ -152,6 +155,7 @@ const tiago: AnamneseAvatar = {
   nome: 'Tiago',
   idade: 38,
   area: 'Problemas de Vinculação',
+  genero: 'm',
   resistencias:
     'racionalizas tudo; ofereces "não gosto de me debruçar nisso" como facto encerrado; minimizas o vazio ("passa").',
   narrativaManifesta: [
@@ -198,6 +202,7 @@ const carolina: AnamneseAvatar = {
   nome: 'Carolina',
   idade: 34,
   area: 'Relações Tóxicas e Codependência',
+  genero: 'f',
   resistencias:
     'atribuis à genética para não olhar para o que aprendeste; focas no comportamento dos outros; usas a opinião dos amigos em vez da tua própria experiência.',
   narrativaManifesta: [

@@ -76,6 +76,8 @@ export interface AnamneseAvatar {
   nome: string
   idade: number
   area: string
+  /** Género — concordância PT-PT no system prompt (confus[a/o], etc.). */
+  genero: 'f' | 'm'
   /** Resistências naturais do perfil — injectadas no system prompt do avatar. */
   resistencias: string
   /** Afirmações que o avatar pode usar naturalmente (conteúdo manifesto). */
@@ -116,6 +118,14 @@ export interface MomentoCritico {
   o_que_deveria_ter_acontecido: string
 }
 
+/** Passos da metodologia explorados (símbolo → episódio → corpo → latente). */
+export interface CoberturaMetodologia {
+  simbolo: boolean
+  episodio: boolean
+  corpo: boolean
+  latente: boolean
+}
+
 export interface RelatorioAnamnese {
   avatar: string
   data: string
@@ -130,6 +140,10 @@ export interface RelatorioAnamnese {
   pontos_positivos: string[]
   proxima_sessao_sugerida: string
   nota_pedagogica: string
+  /** Passos da metodologia cobertos (null/ausente se a IA não avaliou). */
+  cobertura_metodologia?: CoberturaMetodologia | null
+  /** Explicação de por que o score foi limitado por suficiência (vazio se não limitado). */
+  nota_suficiencia?: string
 }
 
 // ─── Linha da BD (tabela sessoes_anamnese) ──────────────────────────────────────

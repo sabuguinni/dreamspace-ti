@@ -5,6 +5,9 @@ import { labelErro, type TipoErro } from '@/lib/anamnese/types'
 interface Props {
   tipoErro: TipoErro | string
   intervencao: string
+  /** Se fornecido, mostra um botão 🔊 para ouvir a intervenção (voz Hugo). */
+  onPlay?: () => void
+  isPlaying?: boolean
 }
 
 /**
@@ -12,7 +15,7 @@ interface Props {
  * Visualmente distinto do chat normal — fundo âmbar escuro, borda dourada,
  * para o formando distinguir do Supervisor de Sonhos.
  */
-export function BlocoSupervisorAnamnese({ tipoErro, intervencao }: Props) {
+export function BlocoSupervisorAnamnese({ tipoErro, intervencao, onPlay, isPlaying }: Props) {
   return (
     <div
       className="rounded-xl p-4 space-y-2.5 animate-fade-in"
@@ -24,11 +27,24 @@ export function BlocoSupervisorAnamnese({ tipoErro, intervencao }: Props) {
       }}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid rgba(201,169,97,0.3)' }}>
-        <span className="text-base leading-none">👁</span>
-        <span className="text-xs font-semibold tracking-widest uppercase" style={{ color: '#C9A961' }}>
-          Supervisor · Anamnese
-        </span>
+      <div className="flex items-center justify-between gap-2 pb-2" style={{ borderBottom: '1px solid rgba(201,169,97,0.3)' }}>
+        <div className="flex items-center gap-2">
+          <span className="text-base leading-none">👁</span>
+          <span className="text-xs font-semibold tracking-widest uppercase" style={{ color: '#C9A961' }}>
+            Supervisor · Anamnese
+          </span>
+        </div>
+        {onPlay && (
+          <button
+            type="button"
+            onClick={onPlay}
+            className="text-sm leading-none transition-opacity hover:opacity-80"
+            style={{ color: '#C9A961' }}
+            title="Ouvir a intervenção (voz Hugo)"
+          >
+            {isPlaying ? '🔊' : '🔈'}
+          </button>
+        )}
       </div>
 
       {/* Tipo de erro */}

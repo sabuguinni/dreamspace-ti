@@ -4,6 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import { enforceVocabulary } from '@/lib/anthropic/vocabulary-filter'
 import { lookupUser } from '@/lib/aiCreditsClient'
 import { getAnamneseAvatar } from '@/lib/anamnese/narrativas'
+import { getAnamneseAvatarPublico } from '@/lib/anamnese/avataresPublicos'
+import { enforcePtPt } from '@/lib/anamnese/ptpt'
+import { rewritePtPt } from '@/lib/anamnese/ptptRewrite'
 import { buildAvatarSystemPrompt, AVATAR_ABERTURA_TRIGGER } from '@/lib/anamnese/prompts'
 import { ANAMNESE_DESBLOQUEIO_MINIMO, type TurnoConversa } from '@/lib/anamnese/types'
 import { isMissingAnamneseTable } from '@/lib/anamnese/serverUtils'
@@ -11,6 +14,7 @@ import { z } from 'zod'
 
 const CreateSchema = z.object({
   avatar_id: z.string().min(1).max(40),
+  modo: z.enum(['escrito', 'voz']).default('escrito'),
 })
 
 // GET /api/anamnese/sessao — lista as sessões de anamnese do utilizador
@@ -44,7 +48,7 @@ export async function POST(req: Request) {
   const avatar = getAnamneseAvatar(parsed.data.avatar_id)
   if (!avatar) return NextResponse.json({ error: 'Avatar não encontrado' }, { status: 404 })
 
-  // ── Pré-requisito de desbloqueio: 10 sessões de Supervisor de Sonhos concluídas ──
+  // ── Pré-requisito de desbloqueio: 10 sessões do Supervisor de Sonhos com score > 70 ──
   const isAdmin = (await lookupUser(user.email ?? '').catch(() => null))?.isAdmin ?? false
 
   const { count: concluidas } = await supabase
@@ -52,6 +56,7 @@ export async function POST(req: Request) {
     .select('id', { count: 'exact', head: true })
     .eq('user_id', user.id)
     .eq('estado', 'concluida')
+    .gt('score', 70)
 
   if (!isAdmin && (concluidas ?? 0) < ANAMNESE_DESBLOQUEIO_MINIMO) {
     return NextResponse.json(
@@ -64,22 +69,27 @@ export async function POST(req: Request) {
     )
   }
 
-  // ── Gera a abertura do avatar (turno 0) ──────────────────────────────────────
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  // ── Abertura do avatar (turno 0) ──────────────────────────────────────────────
+  // Modo escrito: gerada por Claude aqui. Modo voz: fica VAZIA — a Carolina abre em voz
+  // via Gemini (trigger no cliente) e a abertura é gravada por /api/anamnese/voz-registo.
   let openingText = ''
-  try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 400,
-      system: buildAvatarSystemPrompt(avatar),
-      messages: [{ role: 'user', content: AVATAR_ABERTURA_TRIGGER }],
-    })
-    openingText = enforceVocabulary(
-      response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join(''),
-    ).texto
-  } catch (err) {
-    console.error('[anamnese/sessao] opening error:', err)
-    openingText = `Olá. Sou a ${avatar.nome}. Não sei bem por onde começar, mas vim cá para tentar perceber algumas coisas.`
+  if (parsed.data.modo === 'escrito') {
+    const feminino = getAnamneseAvatarPublico(avatar.id)?.genero === 'f'
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 400,
+        system: buildAvatarSystemPrompt(avatar),
+        messages: [{ role: 'user', content: AVATAR_ABERTURA_TRIGGER }],
+      })
+      openingText = await rewritePtPt(enforcePtPt(enforceVocabulary(
+        response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join(''),
+      ).texto, { feminino }))
+    } catch (err) {
+      console.error('[anamnese/sessao] opening error:', err)
+      openingText = `Olá. Sou a ${avatar.nome}. Não sei bem por onde começar, mas vim cá para tentar perceber algumas coisas.`
+    }
   }
 
   const aberturaTurno: TurnoConversa = {
@@ -98,7 +108,7 @@ export async function POST(req: Request) {
       historico_conversa: [aberturaTurno],
       intervencoes_supervisor: [],
       estado: 'em_curso',
-      modo: 'escrito',
+      modo: parsed.data.modo,
     })
     .select()
     .single()

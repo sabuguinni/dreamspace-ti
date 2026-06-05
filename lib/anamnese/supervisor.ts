@@ -4,7 +4,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { AnamneseAvatar, IntervencaoResult, TurnoConversa, MomentoCritico } from './types'
+import type { AnamneseAvatar, IntervencaoResult, TurnoConversa, MomentoCritico, CoberturaMetodologia } from './types'
 import { isTipoErro } from './types'
 import {
   buildSupervisorSystemPrompt,
@@ -42,10 +42,10 @@ function parseJson<T>(raw: string): T | null {
 export async function analisarTurno(params: {
   avatar: AnamneseAvatar
   historico: TurnoConversa[]
-  ultimaMensagemTerapeuta: string
-  respostaAvatar: string
+  mensagemAnteriorAvatar: string
+  perguntaTerapeuta: string
 }): Promise<IntervencaoResult> {
-  const { avatar, historico, ultimaMensagemTerapeuta, respostaAvatar } = params
+  const { avatar, historico, mensagemAnteriorAvatar, perguntaTerapeuta } = params
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -58,7 +58,7 @@ export async function analisarTurno(params: {
       messages: [
         {
           role: 'user',
-          content: buildSupervisorTurnMessage(historico, ultimaMensagemTerapeuta, respostaAvatar),
+          content: buildSupervisorTurnMessage(historico, mensagemAnteriorAvatar, perguntaTerapeuta),
         },
       ],
     })
@@ -87,6 +87,19 @@ export interface NotaPedagogicaResult {
   momentos_criticos: MomentoCritico[]
   proxima_sessao_sugerida: string
   nota_pedagogica: string
+  cobertura_metodologia?: CoberturaMetodologia
+}
+
+/** Coage a cobertura vinda da IA; devolve undefined se ausente (→ best-effort no score). */
+function parseCobertura(c: unknown): CoberturaMetodologia | undefined {
+  if (!c || typeof c !== 'object') return undefined
+  const o = c as Record<string, unknown>
+  return {
+    simbolo: o.simbolo === true,
+    episodio: o.episodio === true,
+    corpo: o.corpo === true,
+    latente: o.latente === true,
+  }
 }
 
 export async function gerarNotaPedagogica(params: {
@@ -121,5 +134,6 @@ export async function gerarNotaPedagogica(params: {
     momentos_criticos: Array.isArray(parsed.momentos_criticos) ? parsed.momentos_criticos.slice(0, 3) : [],
     proxima_sessao_sugerida: typeof parsed.proxima_sessao_sugerida === 'string' ? parsed.proxima_sessao_sugerida : '',
     nota_pedagogica: typeof parsed.nota_pedagogica === 'string' ? parsed.nota_pedagogica : '',
+    cobertura_metodologia: parseCobertura(parsed.cobertura_metodologia),
   }
 }

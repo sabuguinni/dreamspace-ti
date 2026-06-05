@@ -5,8 +5,7 @@ import { enforceVocabulary } from '@/lib/anthropic/vocabulary-filter'
 import { lookupUser, debit } from '@/lib/aiCreditsClient'
 import { getAnamneseAvatar } from '@/lib/anamnese/narrativas'
 import { buildAvatarSystemPrompt, AVATAR_ABERTURA_TRIGGER } from '@/lib/anamnese/prompts'
-import { analisarTurno } from '@/lib/anamnese/supervisor'
-import type { SessaoAnamnese, TurnoConversa, IntervencaoResult } from '@/lib/anamnese/types'
+import type { SessaoAnamnese, TurnoConversa } from '@/lib/anamnese/types'
 import { z } from 'zod'
 
 const TurnoSchema = z.object({
@@ -81,35 +80,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Não foi possível obter resposta do avatar. Tenta daqui a pouco.' }, { status: 503 })
   }
 
-  // ── 2. Análise do Supervisor (turnos reais, sem a abertura) ───────────────────
-  const historicoReal = historico.filter(t => t.turno > 0)
-  let intervencao: IntervencaoResult = { intervir: false }
-  try {
-    intervencao = await analisarTurno({
-      avatar,
-      historico: historicoReal,
-      ultimaMensagemTerapeuta: mensagem,
-      respostaAvatar,
-    })
-  } catch (err) {
-    console.error('[anamnese/turno] supervisor error:', err)
-    // Falha do supervisor não bloqueia o turno — segue sem intervenção
-  }
-
-  const intervencaoTexto = intervencao.intervir && intervencao.intervencao
-    ? enforceVocabulary(intervencao.intervencao).texto
-    : undefined
-
-  // ── 3. Persistir o novo turno ─────────────────────────────────────────────────
+  // ── 2. Persistir o turno do avatar (a análise do Supervisor corre depois,
+  //       em /api/anamnese/supervisor — NÃO bloqueia a resposta do avatar) ───────
   const proximoTurno = historico.reduce((max, t) => Math.max(max, t.turno), 0) + 1
   const novoTurno: TurnoConversa = {
     turno: proximoTurno,
     timestamp: new Date().toISOString(),
     terapeuta: mensagem,
     avatar: respostaAvatar,
-    supervisor_interveio: intervencao.intervir,
-    tipo_erro: intervencao.intervir ? intervencao.tipo_erro : undefined,
-    intervencao_supervisor: intervencaoTexto,
+    supervisor_interveio: false, // preenchido por /api/anamnese/supervisor se houver intervenção
   }
 
   const novoHistorico = [...historico, novoTurno]
@@ -125,7 +104,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Erro ao guardar o turno.' }, { status: 500 })
   }
 
-  // ── 4. Débito de créditos (não-bloqueante, admin isento) ──────────────────────
+  // ── 3. Débito de créditos (não-bloqueante, admin isento) ──────────────────────
   lookupUser(user.email ?? '')
     .then(lmsUser => {
       if (lmsUser && !lmsUser.isAdmin) {
@@ -134,13 +113,5 @@ export async function POST(req: Request) {
     })
     .catch(err => console.warn('[anamnese/turno] debit failed:', err?.message))
 
-  return NextResponse.json({
-    turno: novoTurno,
-    avatar: respostaAvatar,
-    intervencao: {
-      intervir: intervencao.intervir,
-      tipo_erro: intervencao.intervir ? intervencao.tipo_erro : undefined,
-      intervencao: intervencaoTexto,
-    },
-  })
+  return NextResponse.json({ turno: novoTurno, avatar: respostaAvatar })
 }

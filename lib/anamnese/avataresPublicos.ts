@@ -13,6 +13,10 @@ export interface AnamneseAvatarPublico {
   area: string
   descricao: string
   cor: string
+  /** Voz Gemini (prebuilt) usada na síntese TTS do cliente. */
+  voz: 'Kore' | 'Aoede' | 'Charon' | 'Puck' | 'Fenrir' | 'Leda'
+  /** Género — para concordância PT-PT (ex.: obrigado/obrigada). */
+  genero: 'f' | 'm'
 }
 
 export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
@@ -23,6 +27,8 @@ export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
     area: 'Ansiedade Generalizada',
     descricao: 'Fala da mãe controladora, do pai ausente e do medo constante de falhar.',
     cor: 'oklch(0.55 0.15 25)',
+    voz: 'Kore',
+    genero: 'f',
   },
   {
     id: 'ricardo',
@@ -31,6 +37,8 @@ export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
     area: 'Depressão e Perda de Sentido',
     descricao: 'Vinte anos de carreira que de repente deixaram de fazer sentido.',
     cor: 'oklch(0.45 0.08 250)',
+    voz: 'Charon',
+    genero: 'm',
   },
   {
     id: 'sofia',
@@ -39,6 +47,8 @@ export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
     area: 'Fobias e Trauma',
     descricao: 'Infância difícil, ataques de pânico e dificuldade em deixar aproximar.',
     cor: 'oklch(0.50 0.13 300)',
+    voz: 'Aoede',
+    genero: 'f',
   },
   {
     id: 'tiago',
@@ -47,6 +57,8 @@ export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
     area: 'Problemas de Vinculação',
     descricao: 'Evita relações. Veio porque a parceira deu um ultimato.',
     cor: 'oklch(0.46 0.06 200)',
+    voz: 'Puck',
+    genero: 'm',
   },
   {
     id: 'carolina',
@@ -55,6 +67,8 @@ export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
     area: 'Relações Tóxicas e Codependência',
     descricao: 'Anula-se a cuidar dos outros. Não sabe quem é fora desse papel.',
     cor: 'oklch(0.52 0.13 350)',
+    voz: 'Leda',
+    genero: 'f',
   },
 ]
 

@@ -9,6 +9,11 @@ export interface AnamneseEstado {
   desbloqueada: boolean
   sessoesConcluidas: number
   necessarias: number
+  isAdmin?: boolean
+}
+
+export interface SessaoAnamneseAdmin extends SessaoAnamnese {
+  profiles: { nome_completo: string; email: string } | null
 }
 
 // ── Estado de desbloqueio ──────────────────────────────────────────────────────
@@ -38,6 +43,22 @@ export function useSessoesAnamnese() {
   })
 }
 
+// ── Lista cross-user (admin/formador) ────────────────────────────────────────
+
+export function useSessoesAnamneseAdmin() {
+  return useQuery({
+    queryKey: [...QK, 'admin'],
+    queryFn: async (): Promise<SessaoAnamneseAdmin[]> => {
+      const res = await fetch('/api/anamnese/admin/sessoes')
+      if (res.status === 403) throw new Error('forbidden')
+      if (!res.ok) throw new Error('Erro ao carregar sessões')
+      const data = await res.json() as { sessoes: SessaoAnamneseAdmin[] }
+      return data.sessoes ?? []
+    },
+    retry: false,
+  })
+}
+
 // ── Sessão individual ──────────────────────────────────────────────────────────
 
 export function useSessaoAnamnese(id: string | null) {
@@ -62,11 +83,11 @@ export interface CriarAnamneseResult {
 export function useCriarSessaoAnamnese() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (avatar_id: string): Promise<SessaoAnamnese> => {
+    mutationFn: async (input: { avatar_id: string; modo: 'escrito' | 'voz' }): Promise<SessaoAnamnese> => {
       const res = await fetch('/api/anamnese/sessao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatar_id }),
+        body: JSON.stringify(input),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))

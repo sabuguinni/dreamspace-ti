@@ -98,7 +98,12 @@ const RECONNECT_DELAY_MS = 1500
 /** @type {Map<string, object>} socket.id → SessionState */
 const activeSessions = new Map()
 
-function buildSetupMessage(modelName, systemPrompt, voiceName, resumptionHandle) {
+function buildSetupMessage(modelName, systemPrompt, voiceName, resumptionHandle, type) {
+  // VAD por tipo. Anamnese: apanha arranques suaves (START_HIGH + prefix 600ms) — seguro porque o
+  // cliente corta o mic durante a fala do avatar (anti-eco). Avatares/Retiros: config conservadora.
+  const automaticActivityDetection = type === 'anamnese'
+    ? { disabled: false, startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH', endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', prefixPaddingMs: 600, silenceDurationMs: 1500 }
+    : { disabled: false, startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', prefixPaddingMs: 300, silenceDurationMs: 1500 }
   const setup = {
     model: modelName,
     generationConfig: {
@@ -114,19 +119,7 @@ function buildSetupMessage(modelName, systemPrompt, voiceName, resumptionHandle)
     },
     inputAudioTranscription: {},
     outputAudioTranscription: {},
-    // VAD config — evita que ruído de fundo dispare interrupted: true a meio da resposta.
-    // START_SENSITIVITY_LOW: só activa com speech claro; END_SENSITIVITY_HIGH: espera silêncio prolongado.
-    // silenceDurationMs:1500 → 1.5s de silêncio antes de turnComplete (default era ~800ms).
-    // NÃO replicar em buildSetupMessageStt: esse modo usa VAD natural para detectar fim do utilizador.
-    realtimeInputConfig: {
-      automaticActivityDetection: {
-        disabled: false,
-        startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
-        endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
-        prefixPaddingMs: 300,
-        silenceDurationMs: 1500,
-      },
-    },
+    realtimeInputConfig: { automaticActivityDetection },
     contextWindowCompression: { slidingWindow: {} },
     sessionResumption: resumptionHandle ? { handle: resumptionHandle } : {},
   }
@@ -161,6 +154,14 @@ function buildSetupMessageStt(resumptionHandle) {
       parts: [{ text: 'Responde sempre com apenas "Hmm." independentemente do que for dito.' }],
     },
     inputAudioTranscription: {},
+    // VAD afinado para fala terapêutica — silêncio de 1s (mais responsivo) + botão "enviar" manual no cliente
+    realtimeInputConfig: {
+      automaticActivityDetection: {
+        endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+        prefixPaddingMs: 300,
+        silenceDurationMs: 1000,
+      },
+    },
     contextWindowCompression: { slidingWindow: {} },
     sessionResumption: resumptionHandle ? { handle: resumptionHandle } : {},
   }
@@ -210,7 +211,7 @@ function connectToGemini(socket, session) {
     console.log(`[GeminiProxy] WS OPEN for socket ${socket.id}`)
     const setupMsg = session.type === 'supervisor_stt'
       ? buildSetupMessageStt(session.resumptionHandle)
-      : buildSetupMessage(session.modelName, session.systemPrompt, session.voiceName, session.resumptionHandle)
+      : buildSetupMessage(session.modelName, session.systemPrompt, session.voiceName, session.resumptionHandle, session.type)
     ws.send(JSON.stringify(setupMsg))
   })
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
-import type { SessaoSupervisor, Mensagem, SupervisorReport } from '@/lib/types'
+import { METODO_LABELS, type SessaoSupervisor, type Mensagem, type SupervisorReport, type SupervisorReportV2 } from '@/lib/types'
 import { MarkdownContent } from './MarkdownContent'
 import { MetodoBadge } from './MetodoBadge'
 import { FlagBadge } from './FlagBadge'
@@ -77,7 +77,7 @@ function DimensaoCard({ label, dimensao }: { label: string; dimensao: { score: n
   )
 }
 
-function SupervisorReportPanel({ report, sessaoId }: { report: SupervisorReport; sessaoId: string }) {
+function SupervisorReportPanelV1({ report, sessaoId }: { report: SupervisorReport; sessaoId: string }) {
   const overallColor = scoreColor(report.overallScore)
   return (
     <div
@@ -170,6 +170,219 @@ function SupervisorReportPanel({ report, sessaoId }: { report: SupervisorReport;
   )
 }
 
+// ─── Report v2 (modelo determinístico — alinhado com o relatório da Anamnese) ──
+
+const CLASSIFICACAO_COR_SONHO: Record<string, string> = {
+  Excelente: 'oklch(0.55 0.18 145)',
+  Bom: 'oklch(0.65 0.18 65)',
+  'A Desenvolver': 'oklch(0.631 0.118 65)',
+  'Crítico': 'oklch(0.52 0.22 25)',
+}
+
+function corScoreV2(score: number): string {
+  if (score >= 85) return 'oklch(0.55 0.18 145)'
+  if (score >= 65) return 'oklch(0.65 0.18 65)'
+  if (score >= 40) return 'oklch(0.631 0.118 65)'
+  return 'oklch(0.52 0.22 25)'
+}
+
+function ReportDownloadButtons({ sessaoId }: { sessaoId: string }) {
+  return (
+    <div className="flex flex-wrap gap-2 pt-1">
+      <button
+        type="button"
+        onClick={() => {
+          fetch('/api/supervisor/sessoes/' + sessaoId + '/pdf?tipo=transcript')
+            .then(r => { if (!r.ok) { toast.error('Transcricao nao disponivel'); return null; } return r.blob(); })
+            .then(blob => { if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'transcricao-sessao-' + sessaoId.slice(0, 8) + '.pdf'; a.click(); URL.revokeObjectURL(url); })
+            .catch(() => toast.error('Erro ao descarregar PDF'));
+        }}
+        className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium border transition-colors"
+        style={{ borderColor: 'var(--border)', color: 'var(--foreground)', background: 'var(--background)' }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Transcrição PDF
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          fetch('/api/supervisor/sessoes/' + sessaoId + '/pdf?tipo=relatorio')
+            .then(r => { if (!r.ok) { toast.error('Relatorio nao disponivel'); return null; } return r.blob(); })
+            .then(blob => { if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'relatorio-sessao-' + sessaoId.slice(0, 8) + '.pdf'; a.click(); URL.revokeObjectURL(url); })
+            .catch(() => toast.error('Erro ao descarregar PDF'));
+        }}
+        className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium border transition-colors"
+        style={{ borderColor: 'var(--border)', color: 'var(--foreground)', background: 'var(--background)' }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Relatório PDF
+      </button>
+    </div>
+  )
+}
+
+function SupervisorReportPanelV2({ report, sessaoId }: { report: SupervisorReportV2; sessaoId: string }) {
+  const cor = corScoreV2(report.score)
+  const corClass = CLASSIFICACAO_COR_SONHO[report.classificacao] ?? cor
+  const cob = report.cobertura_metodologia
+  return (
+    <div
+      className="mt-6 rounded-2xl border p-5 space-y-5"
+      style={{ borderColor: `${corClass}60`, background: 'var(--card)', borderLeft: `4px solid ${corClass}` }}
+    >
+      {/* Header */}
+      <div className="flex items-start gap-4">
+        <div
+          className="flex items-center justify-center w-16 h-16 rounded-full border-4 text-lg font-bold shrink-0"
+          style={{ borderColor: cor, color: cor, background: `${cor}18` }}
+        >
+          {report.score}
+        </div>
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Avaliação da Sessão</p>
+          <p className="text-base font-semibold" style={{ color: corClass }}>{report.classificacao}</p>
+          <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+            {report.score} / 100 · {METODO_LABELS[report.metodo] ?? report.metodo}
+          </p>
+        </div>
+      </div>
+
+      {/* Suficiência */}
+      {report.nota_suficiencia && (
+        <div className="rounded-xl border p-4" style={{ borderColor: '#C9A96155', background: '#3D2B0010' }}>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: '#B8924A' }}>Suficiência da sessão</p>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--foreground)' }}>{report.nota_suficiencia}</p>
+        </div>
+      )}
+
+      {/* Protocolo de 4 níveis */}
+      {cob && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>Protocolo de trabalho com o sonho</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {([
+              ['acolhimento', 'Acolhimento fenomenológico'],
+              ['metodo', 'Escolha do método'],
+              ['elementos', 'Elementos não explorados'],
+              ['integracao', 'Integração na vida'],
+            ] as const).map(([k, label]) => {
+              const ok = cob[k]
+              return (
+                <div key={k} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
+                  <span style={{ color: ok ? 'oklch(0.55 0.18 145)' : 'oklch(0.52 0.22 25)' }}>{ok ? '✓' : '✗'}</span>
+                  <span style={{ color: ok ? 'var(--foreground)' : 'var(--muted-foreground)' }}>{label}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Resumo de flags */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>
+          Erros assinalados ({report.resumo_flags.total})
+        </p>
+        {report.resumo_flags.total === 0 ? (
+          <p className="text-sm" style={{ color: 'oklch(0.55 0.18 145)' }}>✓ Nenhum erro assinalado durante a sessão.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {report.resumo_flags.por_tipo.map(item => (
+              <div key={item.flag} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
+                <span style={{ color: 'var(--foreground)' }}><span style={{ color: '#C9A961' }}>●</span> {item.descricao}</span>
+                <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>×{item.contagem}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Momentos críticos */}
+      {report.momentos_criticos.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted-foreground)' }}>Momentos críticos</p>
+          <div className="space-y-3">
+            {report.momentos_criticos.map((m, i) => (
+              <div key={i} className="rounded-lg border p-3 space-y-1.5" style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
+                <p className="text-xs font-medium" style={{ color: 'var(--muted-foreground)' }}>Turno {m.turno}</p>
+                {m.mensagem_terapeuta && <p className="text-sm italic" style={{ color: 'var(--foreground)' }}>«{m.mensagem_terapeuta}»</p>}
+                {m.o_que_aconteceu && (
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
+                    <span className="font-medium" style={{ color: 'oklch(0.52 0.22 25)' }}>O que aconteceu: </span>{m.o_que_aconteceu}
+                  </p>
+                )}
+                {m.o_que_deveria_ter_acontecido && (
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
+                    <span className="font-medium" style={{ color: 'oklch(0.55 0.18 145)' }}>Alternativa: </span>{m.o_que_deveria_ter_acontecido}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pontos fortes + áreas a desenvolver */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {report.pontos_positivos.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'oklch(0.55 0.18 145)' }}>Pontos fortes</p>
+            <ul className="space-y-1">
+              {report.pontos_positivos.map((p, i) => (
+                <li key={i} className="text-xs flex gap-1.5 items-start" style={{ color: 'var(--foreground)' }}>
+                  <span style={{ color: 'oklch(0.55 0.18 145)', marginTop: '0.15em' }}>✓</span><span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {report.areas_melhoria.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'oklch(0.65 0.18 65)' }}>Áreas a desenvolver</p>
+            <ul className="space-y-1">
+              {report.areas_melhoria.map((a, i) => (
+                <li key={i} className="text-xs flex gap-1.5 items-start" style={{ color: 'var(--foreground)' }}>
+                  <span style={{ color: 'oklch(0.65 0.18 65)', marginTop: '0.15em' }}>→</span><span>{a}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Próxima sessão */}
+      {report.proxima_sessao_sugerida && (
+        <div className="rounded-lg border p-3" style={{ borderColor: 'var(--border)', background: 'var(--background)' }}>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--muted-foreground)' }}>Próxima sessão sugerida</p>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--foreground)' }}>{report.proxima_sessao_sugerida}</p>
+        </div>
+      )}
+
+      {/* Nota do Supervisor */}
+      {report.nota_pedagogica && (
+        <div className="rounded-xl border p-4" style={{ borderColor: '#C9A96155', background: '#3D2B0010' }}>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: '#B8924A' }}>Nota do Supervisor</p>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--foreground)' }}>{report.nota_pedagogica}</p>
+        </div>
+      )}
+
+      <ReportDownloadButtons sessaoId={sessaoId} />
+    </div>
+  )
+}
+
+/** v2 traz `version: 2` (e sempre `classificacao`); v1 não tem nenhum dos dois. */
+function isReportV2(r: SupervisorReport | SupervisorReportV2): r is SupervisorReportV2 {
+  return (r as SupervisorReportV2).version === 2 || (r as SupervisorReportV2).classificacao !== undefined
+}
+
+/** Dispatcher: relatórios v2 (novos) → painel v2; v1 (antigos) → painel v1 (fallback, nunca partir). */
+function SupervisorReportPanel({ report, sessaoId }: { report: SupervisorReport | SupervisorReportV2; sessaoId: string }) {
+  return isReportV2(report)
+    ? <SupervisorReportPanelV2 report={report} sessaoId={sessaoId} />
+    : <SupervisorReportPanelV1 report={report} sessaoId={sessaoId} />
+}
+
 function ReportLoadingIndicator() {
   return (
     <div className="mt-6 flex items-center gap-3 justify-center rounded-xl border p-5" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
@@ -234,7 +447,7 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
   const isSendingRef = useRef(false)
 
   // ── AI Report ────────────────────────────────────────────────────────────────
-  const [supervisorReport, setSupervisorReport] = useState<SupervisorReport | null>(null)
+  const [supervisorReport, setSupervisorReport] = useState<SupervisorReport | SupervisorReportV2 | null>(null)
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
 
   // ── Shared ───────────────────────────────────────────────────────────────────
@@ -264,7 +477,7 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
              (m.metadata as Record<string, unknown>)?.type === 'supervisor_report'
       )
       if (reportMsg) {
-        try { setSupervisorReport(JSON.parse(reportMsg.conteudo) as SupervisorReport) } catch {}
+        try { setSupervisorReport(JSON.parse(reportMsg.conteudo) as SupervisorReport | SupervisorReportV2) } catch {}
       }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -530,7 +743,7 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
         console.error('[SessaoChat] report generation failed:', res.status)
         return
       }
-      const { report } = await res.json() as { report: SupervisorReport }
+      const { report } = await res.json() as { report: SupervisorReport | SupervisorReportV2 }
       if (report) setSupervisorReport(report)
     } catch (err) {
       console.error('[SessaoChat] report error:', err)
@@ -549,9 +762,8 @@ export function SessaoChat({ sessaoId, sessaoInicial, mensagensIniciais, initial
         if (hugoAudioRef.current) hugoAudioRef.current.pause()
         gemini.disconnect()
 
-        patchBody.voice_transcript = voiceTranscriptLines.map(l =>
-          l.role === 'user' ? `[Terapeuta]: ${l.text}` : `[Supervisor]: ${l.text}`
-        )
+        // O voice-turn já persiste cada turno em `mensagens` ao vivo (com flags).
+        // Não reenviamos voice_transcript aqui para não duplicar mensagens.
         const durationMs = voiceStartRef.current ? Date.now() - voiceStartRef.current : 0
         patchBody.voice_duration_minutes = Math.max(1, Math.ceil(durationMs / 60000))
       }

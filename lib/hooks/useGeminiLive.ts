@@ -33,7 +33,7 @@ interface UseGeminiLiveOptions {
    *                    onUserSpeechFinal fires when the user finishes a turn.
    * 'avatar'         → default bidirectional voice with client system prompt.
    */
-  type?: 'supervisor' | 'supervisor_stt' | 'avatar'
+  type?: 'supervisor' | 'supervisor_stt' | 'avatar' | 'anamnese'
   onAudioChunk: (pcmBase64: string) => void
   onTextResponse: (text: string) => void
   onTranscription: (text: string, isUser: boolean) => void
@@ -44,6 +44,8 @@ interface UseGeminiLiveOptions {
    * Receives the complete transcription of the user's turn.
    */
   onUserSpeechFinal?: (text: string) => void
+  /** Chamado quando a fila de playback esvazia (fim da fala do avatar — áudio drenado). */
+  onPlaybackEnd?: () => void
 }
 
 // ─── Audio helpers ────────────────────────────────────────────────────────────
@@ -126,7 +128,9 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
 
   const playNextInQueue = useCallback(() => {
     if (!playbackContextRef.current || playbackQueueRef.current.length === 0) {
+      const wasPlaying = isPlayingRef.current
       isPlayingRef.current = false
+      if (wasPlaying) optionsRef.current?.onPlaybackEnd?.() // fila esvaziou → fim da fala do avatar (cauda drenada)
       return
     }
     isPlayingRef.current = true
@@ -295,8 +299,9 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
         const inputTranscription = content.inputTranscription as { text?: string } | undefined
         if (inputTranscription?.text) {
           if (isSttMode) {
-            // Accumulate into STT buffer; also surface via onTranscription for live display
-            sttBufferRef.current += inputTranscription.text + ' '
+            // Acumula a transcrição. Os deltas do Gemini já trazem os espaços correctos —
+            // NÃO acrescentar ' ' (fragmentava palavras: "Entã o , quan tas").
+            sttBufferRef.current += inputTranscription.text
             o.onTranscription(inputTranscription.text, true)
           } else {
             o.onTranscription(inputTranscription.text, true)
@@ -382,6 +387,8 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
   const resumeCapture = useCallback(() => { capturePausedRef.current = false }, [])
   /** Clear the STT accumulation buffer (e.g. after manual send in supervisor_stt mode). */
   const clearSttBuffer = useCallback(() => { sttBufferRef.current = '' }, [])
+  /** Envia um turno de TEXTO ao Gemini (ex.: trigger de abertura no modo avatar). */
+  const sendText = useCallback((text: string) => { socketRef.current?.emit('gemini:text', { text }) }, [])
 
   useEffect(() => {
     return () => {
@@ -403,5 +410,6 @@ export function useGeminiLive(options: UseGeminiLiveOptions | null) {
     pauseCapture,
     resumeCapture,
     clearSttBuffer,
+    sendText,
   }
 }
