@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useSessoesAnamneseAdmin, type SessaoAnamneseAdmin } from '@/lib/hooks/useAnamnese'
 import { getAnamneseAvatarPublico } from '@/lib/anamnese/avataresPublicos'
+import { AnamneseAvatarFoto } from '@/components/anamnese/AnamneseAvatarFoto'
 import { RelatorioAnamneseView } from '@/components/anamnese/RelatorioAnamnese'
 
 function scoreColor(score: number): string {
@@ -78,9 +79,7 @@ export default function AnamneseAdminPage() {
                   onClick={() => setExpandedId(expanded ? null : sessao.id)}
                   className="w-full text-left p-4 flex items-center gap-4 transition-colors"
                 >
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold text-white shrink-0" style={{ background: cor }}>
-                    {avatar?.nome?.[0] ?? '?'}
-                  </div>
+                  <AnamneseAvatarFoto imagem={avatar?.imagem} nome={avatar?.nome} cor={cor} size={44} textClass="text-sm" />
 
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate" style={{ color: 'var(--foreground)' }}>

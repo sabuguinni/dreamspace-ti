@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useSessoesAnamnese, useApagarSessaoAnamnese } from '@/lib/hooks/useAnamnese'
 import { getAnamneseAvatarPublico } from '@/lib/anamnese/avataresPublicos'
+import { AnamneseAvatarFoto } from '@/components/anamnese/AnamneseAvatarFoto'
 
 function scoreColor(score: number): string {
   if (score >= 85) return 'oklch(0.55 0.18 145)'
@@ -72,9 +73,7 @@ export default function AnamneseHistoricoPage() {
 
             return (
               <div key={sessao.id} className="rounded-lg border p-4 flex items-center gap-4" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
-                <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold text-white shrink-0" style={{ background: cor }}>
-                  {avatar?.nome?.[0] ?? '?'}
-                </div>
+                <AnamneseAvatarFoto imagem={avatar?.imagem} nome={avatar?.nome} cor={cor} size={44} textClass="text-sm" />
 
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>

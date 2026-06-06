@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { ANAMNESE_AVATARES_PUBLICOS, getAnamneseAvatarPublico } from '@/lib/anamnese/avataresPublicos'
 import { useCriarSessaoAnamnese } from '@/lib/hooks/useAnamnese'
+import { AnamneseAvatarFoto } from './AnamneseAvatarFoto'
 
 type Modo = 'escrito' | 'voz'
 
@@ -37,9 +38,7 @@ export function AvatarSelectorAnamnese() {
         {/* Cliente escolhido + voltar */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full flex items-center justify-center text-base font-semibold text-white shrink-0" style={{ background: cor }}>
-              {selected.nome[0]}
-            </div>
+            <AnamneseAvatarFoto imagem={selected.imagem} nome={selected.nome} cor={cor} size={44} textClass="text-base" />
             <div>
               <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>{selected.nome}, {selected.idade} anos</p>
               <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{selected.area}</p>
@@ -112,12 +111,7 @@ export function AvatarSelectorAnamnese() {
           style={{ borderColor: 'var(--border)', background: 'var(--card)' }}
         >
           <div className="flex items-center gap-3">
-            <div
-              className="w-11 h-11 rounded-full flex items-center justify-center text-base font-semibold text-white shrink-0"
-              style={{ background: avatar.cor }}
-            >
-              {avatar.nome[0]}
-            </div>
+            <AnamneseAvatarFoto imagem={avatar.imagem} nome={avatar.nome} cor={avatar.cor} size={44} textClass="text-base" />
             <div>
               <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
                 {avatar.nome}, {avatar.idade} anos

@@ -13,6 +13,8 @@ export interface AnamneseAvatarPublico {
   area: string
   descricao: string
   cor: string
+  /** Retrato IA (headshot); se ausente, mostra a inicial colorida. */
+  imagem?: string
   /** Voz Gemini (prebuilt) usada na síntese TTS do cliente. */
   voz: 'Kore' | 'Aoede' | 'Charon' | 'Puck' | 'Fenrir' | 'Leda'
   /** Género — para concordância PT-PT (ex.: obrigado/obrigada). */
@@ -22,6 +24,7 @@ export interface AnamneseAvatarPublico {
 export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
   {
     id: 'mariana',
+    imagem: '/anamnese/mariana.jpg',
     nome: 'Mariana',
     idade: 32,
     area: 'Ansiedade Generalizada',
@@ -32,6 +35,7 @@ export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
   },
   {
     id: 'ricardo',
+    imagem: '/anamnese/ricardo.jpg',
     nome: 'Ricardo',
     idade: 45,
     area: 'Depressão e Perda de Sentido',
@@ -42,6 +46,7 @@ export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
   },
   {
     id: 'sofia',
+    imagem: '/anamnese/sofia.jpg',
     nome: 'Sofia',
     idade: 27,
     area: 'Fobias e Trauma',
@@ -52,6 +57,7 @@ export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
   },
   {
     id: 'tiago',
+    imagem: '/anamnese/tiago.jpg',
     nome: 'Tiago',
     idade: 38,
     area: 'Problemas de Vinculação',
@@ -62,6 +68,7 @@ export const ANAMNESE_AVATARES_PUBLICOS: AnamneseAvatarPublico[] = [
   },
   {
     id: 'carolina',
+    imagem: '/anamnese/carolina.jpg',
     nome: 'Carolina',
     idade: 34,
     area: 'Relações Tóxicas e Codependência',

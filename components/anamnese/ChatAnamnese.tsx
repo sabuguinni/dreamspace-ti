@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { getAnamneseAvatarPublico } from '@/lib/anamnese/avataresPublicos'
+import { AnamneseAvatarFoto } from './AnamneseAvatarFoto'
 import { useGeminiLive } from '@/lib/hooks/useGeminiLive'
 import { BlocoSupervisorAnamnese } from './BlocoSupervisorAnamnese'
 import { RelatorioAnamneseView } from './RelatorioAnamnese'
@@ -464,9 +465,7 @@ export function ChatAnamnese({ sessao }: Props) {
         <div className="flex items-center justify-between px-4 md:px-5 py-3 border-b shrink-0" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
           <div className="flex items-center gap-3">
             <div className="relative w-9 h-9 shrink-0">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold text-white" style={{ background: cor }}>
-                {avatar?.nome?.[0] ?? '?'}
-              </div>
+              <AnamneseAvatarFoto imagem={avatar?.imagem} nome={avatar?.nome} cor={cor} size={36} textClass="text-sm" />
               {speakingRole === 'cliente' && (
                 <span className="absolute inset-0 rounded-full animate-ping" style={{ background: cor, opacity: 0.4 }} />
               )}
@@ -528,9 +527,7 @@ export function ChatAnamnese({ sessao }: Props) {
               )}
               {turn.avatar && (
                 <div className="flex items-start gap-2.5 max-w-[85%] group">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0 mt-1" style={{ background: cor }}>
-                    {avatar?.nome?.[0] ?? '?'}
-                  </div>
+                  <div className="mt-1 shrink-0"><AnamneseAvatarFoto imagem={avatar?.imagem} nome={avatar?.nome} cor={cor} size={28} textClass="text-xs" /></div>
                   <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed" style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--foreground)' }}>
                     {turn.avatar}
                   </div>
@@ -568,9 +565,7 @@ export function ChatAnamnese({ sessao }: Props) {
                 </div>
               </div>
               <div className="flex items-start gap-2.5">
-                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0 mt-1" style={{ background: cor }}>
-                  {avatar?.nome?.[0] ?? '?'}
-                </div>
+                <div className="mt-1 shrink-0"><AnamneseAvatarFoto imagem={avatar?.imagem} nome={avatar?.nome} cor={cor} size={28} textClass="text-xs" /></div>
                 <div className="rounded-2xl rounded-tl-sm px-4 py-2.5" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
                   <span className="inline-flex gap-1">
                     {[0, 150, 300].map(d => (
