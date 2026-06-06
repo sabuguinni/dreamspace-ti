@@ -13,7 +13,7 @@ const AVATAR_COLORS: Record<string, { bg: string; fg: string }> = {
 
 export function AvatarCard({ avatar }: { avatar: Avatar }) {
   const color = AVATAR_COLORS[avatar.slug] ?? { bg: 'oklch(0.42 0.08 252)', fg: 'white' }
-  const dicebearSrc = `https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(avatar.nome)}`
+  const avatarSrc = avatar.imagem || `https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(avatar.nome)}`
 
   return (
     <div
@@ -22,13 +22,13 @@ export function AvatarCard({ avatar }: { avatar: Avatar }) {
     >
       {/* Avatar identity */}
       <div className="flex items-center gap-3">
-        <div className="relative w-12 h-12 shrink-0">
+        <div className="relative w-16 h-16 shrink-0 rounded-full overflow-hidden">
           <Image
-            src={dicebearSrc}
+            src={avatarSrc}
             alt={avatar.nome}
-            width={48}
-            height={48}
-            className="rounded-full"
+            width={64}
+            height={64}
+            className="w-full h-full object-cover rounded-full"
             unoptimized
           />
           {/* Fallback initial — behind the image */}

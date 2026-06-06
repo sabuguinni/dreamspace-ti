@@ -107,7 +107,7 @@ export function AvatarChat({
   const concluida = sessao.estado === 'concluida'
 
   const color = AVATAR_COLORS[avatarSlug] ?? { bg: 'oklch(0.42 0.08 252)', fg: 'white' }
-  const dicebearSrc = `https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(avatarNome)}`
+  const avatarSrc = `/avatares/${avatarSlug}.jpg`
 
   // Voice-mode system prompt prefix (Gemini Live needs natural speech instructions)
   const avatar = getAvatar(avatarSlug)
@@ -453,13 +453,13 @@ export function AvatarChat({
         >
           {/* Avatar info */}
           <div className="flex items-center gap-3">
-            <div className="relative w-9 h-9 shrink-0">
+            <div className="relative w-20 h-20 shrink-0">
               <Image
-                src={dicebearSrc}
+                src={avatarSrc}
                 alt={avatarNome}
-                width={36}
-                height={36}
-                className="rounded-full"
+                width={80}
+                height={80}
+                className="w-full h-full object-cover rounded-full"
                 unoptimized
               />
               <div
@@ -593,7 +593,7 @@ export function AvatarChat({
                   ) : (
                     <div className="flex items-start gap-2.5 max-w-[85%]">
                       <div className="relative w-7 h-7 shrink-0 mt-1">
-                        <Image src={dicebearSrc} alt={avatarNome} width={28} height={28} className="rounded-full" unoptimized />
+                        <Image src={avatarSrc} alt={avatarNome} width={28} height={28} className="w-full h-full object-cover rounded-full" unoptimized />
                         <div
                           className="absolute inset-0 rounded-full flex items-center justify-center text-xs font-semibold -z-10"
                           style={{ background: color.bg, color: color.fg }}
@@ -646,7 +646,7 @@ export function AvatarChat({
                   ) : (
                     <div className="flex items-start gap-2.5 max-w-[85%]">
                       <div className="relative w-7 h-7 shrink-0 mt-1">
-                        <Image src={dicebearSrc} alt={avatarNome} width={28} height={28} className="rounded-full" unoptimized />
+                        <Image src={avatarSrc} alt={avatarNome} width={28} height={28} className="w-full h-full object-cover rounded-full" unoptimized />
                         <div
                           className="absolute inset-0 rounded-full flex items-center justify-center text-xs font-semibold -z-10"
                           style={{ background: color.bg, color: color.fg }}

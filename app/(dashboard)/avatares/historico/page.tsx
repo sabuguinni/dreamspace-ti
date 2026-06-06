@@ -90,7 +90,7 @@ export default function HistoricoPage() {
               month: 'long',
               year: 'numeric',
             })
-            const dicebearSrc = `https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(avatar.nome)}`
+            const avatarSrc = avatar.imagem || `https://api.dicebear.com/9.x/personas/svg?seed=${encodeURIComponent(avatar.nome)}`
 
             return (
               <div
@@ -99,14 +99,16 @@ export default function HistoricoPage() {
                 style={{ background: 'var(--card)', borderColor: 'var(--border)' }}
               >
                 {/* Avatar image */}
-                <Image
-                  src={dicebearSrc}
-                  alt={avatar.nome}
-                  width={44}
-                  height={44}
-                  className="rounded-full shrink-0"
-                  unoptimized
-                />
+                <div className="w-16 h-16 rounded-full overflow-hidden shrink-0">
+                  <Image
+                    src={avatarSrc}
+                    alt={avatar.nome}
+                    width={64}
+                    height={64}
+                    className="w-full h-full object-cover rounded-full"
+                    unoptimized
+                  />
+                </div>
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
